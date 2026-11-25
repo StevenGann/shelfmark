@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import assets, auth, sessions, users
+from . import assets, auth, labels, sessions, users
 from .bom import BomError
 from .config import settings
 from .deps import Conn
@@ -604,14 +604,16 @@ async def part_stock_move(ipn: str, request: Request, conn: Conn):
     return RedirectResponse(f"/parts/{ipn}#stock", status_code=303)
 
 
-@router.get("/stock", dependencies=[Depends(_require_session())])
-def stock_page(
-    request: Request,
-    conn: Conn,
+def _stock_context(
+    conn: sqlite3.Connection,
+    *,
     q: str = "",
     location: str = "",
     below: str = "",
-):
+    scan: dict[str, Any] | None = None,
+    scan_error: str | None = None,
+) -> dict[str, Any]:
+    """Everything ``stock.html`` needs, including an optional decoded label."""
     below_int: int | None = None
     if below:
         try:
@@ -634,17 +636,174 @@ def stock_page(
             groups.append(group)
         group["rows"].append(row)
         group["total"] += int(row["quantity"])
+    return {
+        "groups": groups,
+        "locations": stock_repo.list_locations(conn),
+        "q": q,
+        "location": location,
+        "below": below,
+        "scan": scan,
+        "scan_error": scan_error,
+    }
+
+
+@router.get("/stock", dependencies=[Depends(_require_session())])
+def stock_page(
+    request: Request,
+    conn: Conn,
+    q: str = "",
+    location: str = "",
+    below: str = "",
+):
     return _render(
         request,
         "stock.html",
-        {
-            "groups": groups,
-            "locations": stock_repo.list_locations(conn),
-            "q": q,
-            "location": location,
-            "below": below,
-        },
+        _stock_context(conn, q=q, location=location, below=below),
     )
+
+
+def _scan_error_text(exc: labels.LabelError) -> str:
+    message = str(exc)
+    if exc.payloads:
+        message += " Read: " + ", ".join(exc.payloads)
+    return message
+
+
+@router.post("/stock/scan", dependencies=[Depends(_require_session("engineer"))])
+async def stock_scan(request: Request, conn: Conn):
+    """Decode an uploaded label photo and render the confirmation form.
+
+    The browser has a session, not an API key, so the scan goes through the
+    session-authenticated page routes and not through ``/api/labels``. Nothing
+    is written here.
+    """
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or not hasattr(upload, "read"):
+        return _render(
+            request,
+            "stock.html",
+            _stock_context(conn, scan_error="Choose a label photo first."),
+            status_code=400,
+        )
+    try:
+        data = await labels.read_upload(upload)
+        _payloads, chosen = labels.decode(data)
+    except labels.LabelError as exc:
+        return _render(
+            request,
+            "stock.html",
+            _stock_context(conn, scan_error=_scan_error_text(exc)),
+            status_code=422,
+        )
+    parsed = labels.parse_label(chosen)
+    return _render(
+        request,
+        "stock.html",
+        _stock_context(
+            conn,
+            scan={"label": parsed, "resolution": labels.resolve_label(conn, parsed)},
+        ),
+    )
+
+
+@router.post("/stock/label-receive", dependencies=[Depends(_require_session("engineer"))])
+async def stock_label_receive(request: Request, conn: Conn):
+    """Confirm a decoded label: create the part if needed, then record the receipt."""
+    form = await request.form()
+    ipn = str(form.get("ipn") or "").strip()
+    location = str(form.get("location") or "").strip()
+    raw_quantity = str(form.get("quantity") or "").strip()
+    user = getattr(request.state, "user", None)
+    actor = str(user["username"]) if user else "web"
+    parsed = {
+        "mpn": str(form.get("mpn") or "").strip() or None,
+        "description": str(form.get("description") or "").strip() or None,
+        "digikey_pn": str(form.get("digikey_pn") or "").strip() or None,
+        "lot": str(form.get("lot") or "").strip() or None,
+        "date_code": str(form.get("date_code") or "").strip() or None,
+    }
+    scan = {"label": parsed, "resolution": labels.resolve_label(conn, parsed)}
+    try:
+        quantity = int(raw_quantity)
+    except ValueError:
+        return _render(
+            request,
+            "stock.html",
+            _stock_context(conn, scan=scan, scan_error="Quantity must be a whole number."),
+            status_code=422,
+        )
+    if quantity < 1:
+        return _render(
+            request,
+            "stock.html",
+            _stock_context(conn, scan=scan, scan_error="Quantity must be at least 1."),
+            status_code=422,
+        )
+    part: dict[str, Any] | None = None
+    if ipn:
+        part = repo.get_part(conn, ipn)
+    else:
+        manufacturer = str(form.get("manufacturer") or "").strip()
+        if not parsed["mpn"]:
+            return _render(
+                request,
+                "stock.html",
+                _stock_context(
+                    conn, scan=scan, scan_error="The label has no manufacturer part number."
+                ),
+                status_code=422,
+            )
+        if not manufacturer:
+            return _render(
+                request,
+                "stock.html",
+                _stock_context(
+                    conn, scan=scan, scan_error="Manufacturer is required to create a part."
+                ),
+                status_code=422,
+            )
+        try:
+            part = labels.create_part_from_label(conn, parsed, manufacturer)
+        except DuplicatePartError as exc:
+            return _render(
+                request,
+                "stock.html",
+                _stock_context(conn, scan=scan, scan_error=str(exc)),
+                status_code=409,
+            )
+        except ValueError as exc:
+            return _render(
+                request,
+                "stock.html",
+                _stock_context(conn, scan=scan, scan_error=str(exc)),
+                status_code=422,
+            )
+    if part is None:
+        return _render(
+            request,
+            "stock.html",
+            _stock_context(conn, scan=scan, scan_error=f"No part with IPN {ipn}."),
+            status_code=404,
+        )
+    note = (
+        "; ".join(
+            piece
+            for piece in (labels.lot_note(parsed), str(form.get("note") or "").strip() or None)
+            if piece
+        )
+        or None
+    )
+    try:
+        stock_repo.record_move(conn, int(part["id"]), location, "receive", quantity, note, actor)
+    except (StockError, ValueError) as exc:
+        return _render(
+            request,
+            "stock.html",
+            _stock_context(conn, scan=scan, scan_error=str(exc)),
+            status_code=422,
+        )
+    return RedirectResponse("/stock", status_code=303)
 
 
 def _project_context(

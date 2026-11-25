@@ -7,12 +7,14 @@ import getpass
 import json
 import sys
 
-from . import auth, db, enrich, sessions, users
+from . import auth, db, enrich, labels, sessions, users
 from .bom import BomError
 from .repo import boms as boms_repo
 from .repo import catalog
 from .repo import parts as repo
+from .repo import stock as stock_repo
 from .repo.boms import DuplicateRevisionError
+from .repo.parts import DuplicatePartError
 
 
 def _print_key_row(row: dict) -> None:
@@ -206,6 +208,55 @@ def _run_bom(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _run_label(args: argparse.Namespace) -> int:
+    db.migrate()
+    try:
+        data = open(args.file, "rb").read()
+    except OSError as error:
+        print(f"cannot read {args.file}: {error}", file=sys.stderr)
+        return 1
+    try:
+        payloads, chosen = labels.decode(data)
+    except labels.LabelError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    parsed = labels.parse_label(chosen)
+    conn = db.connect()
+    try:
+        resolution = labels.resolve_label(conn, parsed)
+        if args.label_command == "scan":
+            print(json.dumps({"payloads": payloads, "label": parsed, "resolution": resolution}))
+            return 0
+
+        part = resolution["part"]
+        if part is None:
+            if not args.manufacturer:
+                print(
+                    "label does not match an existing part; pass --manufacturer to create one",
+                    file=sys.stderr,
+                )
+                return 1
+            try:
+                part = labels.create_part_from_label(conn, parsed, args.manufacturer)
+            except (DuplicatePartError, ValueError) as error:
+                print(str(error), file=sys.stderr)
+                return 1
+
+        qty = args.quantity if args.quantity is not None else (parsed.get("quantity") or 1)
+        note = "; ".join(p for p in (labels.lot_note(parsed), args.note) if p) or None
+        try:
+            move = stock_repo.record_move(
+                conn, int(part["id"]), args.location, "receive", int(qty), note, "cli"
+            )
+        except (stock_repo.StockError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        print(json.dumps({"part": part, "move": move}))
+        return 0
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="shelfmark")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -256,6 +307,17 @@ def main(argv: list[str] | None = None) -> int:
     bom_list = bom_sub.add_parser("list", help="list a project's revisions")
     bom_list.add_argument("--project", required=True)
 
+    label = sub.add_parser("label", help="decode and receive DigiKey shipping labels")
+    label_sub = label.add_subparsers(dest="label_command", required=True)
+    label_scan = label_sub.add_parser("scan", help="decode a label image")
+    label_scan.add_argument("--file", required=True)
+    label_receive = label_sub.add_parser("receive", help="receive stock from a label image")
+    label_receive.add_argument("--file", required=True)
+    label_receive.add_argument("--location", required=True)
+    label_receive.add_argument("--quantity", type=int)
+    label_receive.add_argument("--note")
+    label_receive.add_argument("--manufacturer")
+
     args = parser.parse_args(argv)
 
     if args.command == "enrich":
@@ -263,6 +325,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "bom":
         return _run_bom(args)
+
+    if args.command == "label":
+        return _run_label(args)
 
     if args.command == "user":
         return _run_user(args)

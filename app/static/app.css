@@ -640,3 +640,43 @@ a.button.primary {
   color: var(--muted);
   border-color: var(--muted);
 }
+
+.scan-panel {
+  margin: 1.5rem 0;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.scan-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin: 0.5rem 0 1rem;
+}
+
+.scan-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.scan-form input[type="file"] {
+  padding: 0.4rem 0;
+  border: none;
+  background: transparent;
+}
+
+#scan-confirm {
+  max-width: 24rem;
+}
+
+#scan-fields {
+  margin: 0.5rem 0;
+}
+
+#scan-match {
+  margin: 0.5rem 0;
+  font-weight: 600;
+}

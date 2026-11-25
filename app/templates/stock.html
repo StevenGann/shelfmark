@@ -20,6 +20,69 @@
   {% endfor %}
 </datalist>
 
+{% if current_user.role in ('engineer', 'admin') %}
+<section class="scan-panel" id="scan">
+  <h2>Scan label</h2>
+  <p class="muted">Photograph the DigiKey label so it fills the frame.</p>
+  {% if scan_error %}<div class="error" role="alert">{{ scan_error }}</div>{% endif %}
+  <form class="scan-form" method="post" action="/stock/scan" enctype="multipart/form-data">
+    <label>Label photo
+      <input type="file" name="file" accept="image/*" capture="environment" required>
+    </label>
+    <button type="submit" class="primary">Decode</button>
+  </form>
+
+  {% if scan %}
+    {% set label = scan.label %}
+    {% set res = scan.resolution %}
+    <form class="stock-form" method="post" action="/stock/label-receive">
+      <dl class="part-fields">
+        {% for name, value in [
+          ('DigiKey PN', label.digikey_pn), ('MPN', label.mpn),
+          ('Description', label.description), ('Quantity', label.quantity),
+          ('Lot', label.lot), ('Date code', label.date_code),
+          ('Country', label.country)
+        ] %}
+          {% if value %}<dt>{{ name }}</dt><dd>{{ value }}</dd>{% endif %}
+        {% endfor %}
+      </dl>
+      {% if res.part %}
+        <p>Matched <a class="ipn" href="/parts/{{ res.part.ipn }}">{{ res.part.ipn }}</a>
+          — {{ res.part.mpn }}<span class="muted"> ({{ res.matched_by }})</span></p>
+        {% if res.stock %}
+          <p class="muted">On hand: {{ res.stock|sum(attribute='quantity') }}</p>
+        {% endif %}
+        <input type="hidden" name="ipn" value="{{ res.part.ipn }}">
+      {% else %}
+        <p class="muted">Not in the catalogue yet — confirming will create it.</p>
+        <label>Manufacturer
+          <input type="text" name="manufacturer" placeholder="e.g. Texas Instruments" required>
+        </label>
+      {% endif %}
+      <input type="hidden" name="mpn" value="{{ label.mpn or '' }}">
+      <input type="hidden" name="description" value="{{ label.description or '' }}">
+      <input type="hidden" name="digikey_pn" value="{{ label.digikey_pn or '' }}">
+      <input type="hidden" name="lot" value="{{ label.lot or '' }}">
+      <input type="hidden" name="date_code" value="{{ label.date_code or '' }}">
+      <label>Location
+        <input type="text" name="location" list="locations"
+               value="{{ res.suggested_location or '' }}" required>
+      </label>
+      <label>Quantity
+        <input type="number" name="quantity" min="1" inputmode="numeric"
+               value="{{ label.quantity or 1 }}" required>
+      </label>
+      <label>Note
+        <input type="text" name="note" placeholder="Optional">
+      </label>
+      <div class="stock-buttons">
+        <button type="submit" class="primary">Confirm receipt</button>
+      </div>
+    </form>
+  {% endif %}
+</section>
+{% endif %}
+
 {% if groups %}
   {% for group in groups %}
   <section class="stock-group">
