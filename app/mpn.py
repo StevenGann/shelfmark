@@ -7,6 +7,8 @@ comparison exact.
 
 from __future__ import annotations
 
+import unicodedata
+
 
 def normalise_mpn(s: str) -> str:
     """Upper-case *s* and strip everything that is not a letter or digit.
@@ -18,3 +20,15 @@ def normalise_mpn(s: str) -> str:
     if not result:
         raise ValueError("MPN must contain at least one letter or digit")
     return result
+
+
+def fold_name(value: str) -> str:
+    """Compare two manufacturer names without arguing about accents or case.
+
+    "Würth Elektronik" and "Wurth Elektronik" are one company, and a BOM that
+    spells it differently from the distributor is not a different part. Only
+    used for matching; the name as written stays in the database.
+    """
+    decomposed = unicodedata.normalize("NFKD", value)
+    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return " ".join(stripped.casefold().split())

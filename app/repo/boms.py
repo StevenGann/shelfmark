@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 
 from .. import assets
 from ..bom import ParsedLine, natural_key, parse_bom
+from ..mpn import fold_name
 from . import parts as parts_repo
 from .catalog import normalise_name
 from .parts import DuplicatePartError
@@ -315,18 +316,23 @@ def match_lines(conn: sqlite3.Connection, parsed: list[ParsedLine]) -> list[dict
     """
     out: list[dict] = []
     for line in parsed:
+        # Candidate parts by MPN first: the MPN is the strong key, and the
+        # manufacturer is compared afterwards so that spelling differences
+        # ("Würth" vs "Wurth") do not hide a part that is plainly there.
+        candidates = conn.execute(
+            "SELECT p.id, p.ipn, p.package, m.name AS manufacturer_name FROM part p "
+            "JOIN manufacturer m ON m.id = p.manufacturer_id "
+            "WHERE p.mpn_norm = ?",
+            (line.mpn_norm,),
+        ).fetchall()
         if line.manufacturer_norm:
-            rows = conn.execute(
-                "SELECT p.id, p.ipn, p.package FROM part p "
-                "JOIN manufacturer m ON m.id = p.manufacturer_id "
-                "WHERE p.mpn_norm = ? AND m.name_norm = ?",
-                (line.mpn_norm, line.manufacturer_norm),
-            ).fetchall()
+            rows = [
+                row
+                for row in candidates
+                if fold_name(str(row["manufacturer_name"])) == fold_name(line.manufacturer or "")
+            ]
         else:
-            rows = conn.execute(
-                "SELECT p.id, p.ipn, p.package FROM part p WHERE p.mpn_norm = ?",
-                (line.mpn_norm,),
-            ).fetchall()
+            rows = candidates
 
         part_id: int | None = None
         status = "unmatched"
@@ -342,7 +348,12 @@ def match_lines(conn: sqlite3.Connection, parsed: list[ParsedLine]) -> list[dict
             notes.append(f"MPN matches {len(rows)} parts ({ipns})")
 
         if status == "unmatched":
-            if line.manufacturer_norm:
+            if candidates:
+                others = ", ".join(
+                    sorted(f"{row['ipn']} ({row['manufacturer_name']})" for row in candidates)
+                )
+                notes.append(f"MPN exists under a different manufacturer: {others}")
+            elif line.manufacturer_norm:
                 notes.append(
                     f"no part with MPN {line.mpn_norm} and manufacturer {line.manufacturer_norm}"
                 )

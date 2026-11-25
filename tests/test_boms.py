@@ -267,3 +267,39 @@ def test_the_real_sk_sensor_header_set_parses():
     assert len(lines[0].references) == 3
     assert lines[0].references == ["C201", "C202", "C206"]
     assert lines[1].references == ["U501", "U502", "U503"]
+
+
+def test_manufacturer_spelling_with_accents_still_matches(client):
+    """A BOM that writes "Wurth" must still find the part stored as "Würth"."""
+    client.post("/api/parts", json={"mpn": "742792651", "manufacturer": "Würth Elektronik"})
+    project = _project(client)
+    r = _import(
+        client,
+        project["id"],
+        "rev A",
+        _csv(
+            ["Reference", "MPN", "Manufacturer"],
+            [["FB201", "742792651", "Wurth Elektronik"]],
+        ),
+    )
+    assert r.status_code == 201
+    lines = client.get(f"/api/revisions/{r.json()['revision_id']}").json()["lines"]
+    assert lines[0]["match_status"] == "matched"
+    assert lines[0]["ipn"] == "SK-00001"
+
+
+def test_mpn_under_another_manufacturer_says_so(client):
+    """An unmatched line must explain which part it nearly matched."""
+    client.post("/api/parts", json={"mpn": "LM358N", "manufacturer": "On Semi"})
+    project = _project(client)
+    r = _import(
+        client,
+        project["id"],
+        "rev A",
+        _csv(["Reference", "MPN", "Manufacturer"], [["U1", "LM358N", "Texas Instruments"]]),
+    )
+    assert r.status_code == 201
+    lines = client.get(f"/api/revisions/{r.json()['revision_id']}").json()["lines"]
+    assert lines[0]["match_status"] == "unmatched"
+    assert "different manufacturer" in lines[0]["match_note"]
+    assert "SK-00001" in lines[0]["match_note"]
