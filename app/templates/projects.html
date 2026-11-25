@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Projects · Shelfmark{% endblock %}
+{% block content %}
+<h1>Projects</h1>
+
+{% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+
+<form method="post" action="/projects" class="part-form">
+  <label>Project name
+    <input name="name" placeholder="sk-sensor" required>
+  </label>
+  <label>Description
+    <input name="description" placeholder="Optional">
+  </label>
+  <button type="submit" class="primary">Create project</button>
+</form>
+
+{% if projects %}
+<table class="parts-table">
+  <thead>
+    <tr><th>Name</th><th>Revisions</th><th>Newest</th><th>Unmatched</th></tr>
+  </thead>
+  <tbody>
+    {% for p in projects %}
+    <tr>
+      <td><a href="/projects/{{ p.id }}">{{ p.name }}</a></td>
+      <td><span class="label">Revisions</span>{{ p.revision_count }}</td>
+      <td><span class="label">Newest</span>{{ p.newest_label or "—" }}</td>
+      <td>
+        <span class="label">Unmatched</span>
+        {% if p.unmatched_count %}<span class="status status-unmatched">{{ p.unmatched_count }}</span>{% else %}0{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <p>No projects yet.</p>
+  <p>Create one above to start importing BOMs.</p>
+</div>
+{% endif %}
+{% endblock %}

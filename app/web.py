@@ -15,14 +15,17 @@ from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from . import assets, auth, sessions, users
+from .bom import BomError
 from .config import settings
 from .deps import Conn
 from .packages import normalise_package
 from .ratelimit import allow
 from .ratelimit import reset as reset_rate
+from .repo import boms as boms_repo
 from .repo import catalog
 from .repo import parts as repo
 from .repo import stock as stock_repo
+from .repo.boms import DuplicateProjectError, DuplicateRevisionError
 from .repo.parts import DESIGN_STATUSES, DuplicatePartError
 from .repo.stock import StockError
 
@@ -642,6 +645,235 @@ def stock_page(
             "below": below,
         },
     )
+
+
+def _project_context(
+    conn: sqlite3.Connection,
+    project_id: int,
+    *,
+    error: str | None = None,
+    pending: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    project = boms_repo.get_project(conn, project_id)
+    assert project is not None
+    revisions = boms_repo.list_revisions(conn, project_id)
+    diff = None
+    unmatched_lines: list[dict[str, Any]] = []
+    if revisions:
+        newest = revisions[0]
+        previous_id = revisions[1]["id"] if len(revisions) > 1 else None
+        diff = boms_repo.diff(conn, previous_id, newest["id"])
+        for line in boms_repo.get_lines(conn, newest["id"]):
+            if line["match_status"] != "matched":
+                unmatched_lines.append(line)
+    return {
+        "project": project,
+        "revisions": revisions,
+        "diff": diff,
+        "unmatched_lines": unmatched_lines,
+        "error": error,
+        "pending": pending,
+    }
+
+
+@router.get("/projects", dependencies=[Depends(_require_session())])
+def projects_page(request: Request, conn: Conn):
+    return _render(
+        request,
+        "projects.html",
+        {"projects": boms_repo.list_projects(conn), "error": None},
+    )
+
+
+@router.post("/projects", dependencies=[Depends(_require_session("engineer"))])
+async def projects_create(request: Request, conn: Conn):
+    values = _form_values(await request.form())
+    name = (values.get("name") or "").strip()
+    error: str | None = None
+    if not name:
+        error = "Name is required."
+    else:
+        try:
+            boms_repo.create_project(
+                conn, name=name, description=(values.get("description") or None)
+            )
+        except DuplicateProjectError:
+            error = f"A project named {name!r} already exists."
+        except ValueError as exc:
+            error = str(exc)
+    if error is not None:
+        return _render(
+            request,
+            "projects.html",
+            {"projects": boms_repo.list_projects(conn), "error": error},
+            status_code=400,
+        )
+    return RedirectResponse("/projects", status_code=303)
+
+
+@router.get("/projects/{project_id}", dependencies=[Depends(_require_session())])
+def project_page(project_id: int, request: Request, conn: Conn):
+    if boms_repo.get_project(conn, project_id) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return _render(request, "project.html", _project_context(conn, project_id))
+
+
+@router.post("/projects/{project_id}/boms", dependencies=[Depends(_require_session("engineer"))])
+async def project_import(project_id: int, request: Request, conn: Conn):
+    project = boms_repo.get_project(conn, project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="not found")
+    form = await request.form()
+    user = request.state.user
+    actor = user.get("username") or "api"
+
+    if (form.get("_confirm") or "") == "1":
+        sha256 = str(form.get("sha256") or "")
+        label = str(form.get("label") or "").strip()
+        note = str(form.get("note") or "") or None
+        filename = str(form.get("filename") or "") or "bom.csv"
+        rel_path = boms_repo.bom_rel_path(str(project["name"]), sha256)
+        path = assets.resolve(rel_path)
+        if path is None or not path.is_file():
+            return _render(
+                request,
+                "project.html",
+                _project_context(
+                    conn, project_id, error="The uploaded file was not found; please re-upload."
+                ),
+                status_code=400,
+            )
+        try:
+            boms_repo.import_bom(
+                conn,
+                project_id=project_id,
+                label=label,
+                source_filename=filename,
+                data=path.read_bytes(),
+                imported_by=actor,
+                note=note,
+            )
+        except DuplicateRevisionError as exc:
+            return _render(
+                request,
+                "project.html",
+                _project_context(
+                    conn,
+                    project_id,
+                    error=f"This file was already imported as revision {exc.revision_id}.",
+                ),
+                status_code=409,
+            )
+        except (BomError, ValueError) as exc:
+            return _render(
+                request,
+                "project.html",
+                _project_context(conn, project_id, error=str(exc)),
+                status_code=400,
+            )
+        return RedirectResponse(f"/projects/{project_id}", status_code=303)
+
+    upload = form.get("file")
+    label = str(form.get("label") or "").strip()
+    note = str(form.get("note") or "") or None
+    if upload is None or not hasattr(upload, "read"):
+        return _render(
+            request,
+            "project.html",
+            _project_context(conn, project_id, error="No file was selected."),
+            status_code=400,
+        )
+    filename = getattr(upload, "filename", None) or "bom.csv"
+    data = await upload.read()
+    try:
+        result = boms_repo.import_bom(
+            conn,
+            project_id=project_id,
+            label=label or "import",
+            source_filename=filename,
+            data=data,
+            imported_by=actor,
+            note=note,
+            dry_run=True,
+        )
+    except (BomError, ValueError) as exc:
+        return _render(
+            request,
+            "project.html",
+            _project_context(conn, project_id, error=str(exc)),
+            status_code=400,
+        )
+
+    sha256 = hashlib.sha256(data).hexdigest()
+    rel_path = boms_repo.bom_rel_path(str(project["name"]), sha256)
+    tmp = assets.tmp_path(rel_path)
+    tmp.write_bytes(data)
+    assets.commit(tmp, rel_path)
+
+    pending = {
+        "label": label,
+        "note": note or "",
+        "filename": filename,
+        "sha256": sha256,
+        "diff": result,
+    }
+    return _render(request, "project.html", _project_context(conn, project_id, pending=pending))
+
+
+@router.get("/revisions/{revision_id}", dependencies=[Depends(_require_session())])
+def revision_page(revision_id: int, request: Request, conn: Conn):
+    revision = boms_repo.get_revision(conn, revision_id)
+    if revision is None:
+        raise HTTPException(status_code=404, detail="not found")
+    project = boms_repo.get_project(conn, revision["project_id"])
+    return _render(
+        request,
+        "revision.html",
+        {
+            "revision": revision,
+            "project": project,
+            "lines": boms_repo.get_lines(conn, revision_id),
+            "error": None,
+        },
+    )
+
+
+@router.post("/bom-lines/{line_id}/resolve", dependencies=[Depends(_require_session("engineer"))])
+async def line_resolve(line_id: int, request: Request, conn: Conn):
+    line = boms_repo.get_line(conn, line_id)
+    if line is None:
+        raise HTTPException(status_code=404, detail="not found")
+    values = _form_values(await request.form())
+    ipn = (values.get("ipn") or "").strip()
+    return_to = _safe_next(values.get("return_to") or f"/revisions/{line['revision_id']}")
+    try:
+        boms_repo.resolve_line(conn, line_id, ipn)
+    except ValueError as exc:
+        revision = boms_repo.get_revision(conn, line["revision_id"])
+        assert revision is not None
+        return _render(
+            request,
+            "revision.html",
+            {
+                "revision": revision,
+                "project": boms_repo.get_project(conn, revision["project_id"]),
+                "lines": boms_repo.get_lines(conn, line["revision_id"]),
+                "error": str(exc),
+            },
+            status_code=400,
+        )
+    return RedirectResponse(return_to, status_code=303)
+
+
+@router.post(
+    "/revisions/{revision_id}/resolve-unmatched",
+    dependencies=[Depends(_require_session("engineer"))],
+)
+def revision_resolve_unmatched(revision_id: int, conn: Conn):
+    if boms_repo.get_revision(conn, revision_id) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    boms_repo.resolve_unmatched(conn, revision_id)
+    return RedirectResponse(f"/revisions/{revision_id}", status_code=303)
 
 
 @router.get("/assets/{rel_path:path}", dependencies=[Depends(_require_session())])

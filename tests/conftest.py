@@ -30,6 +30,9 @@ def reset_db():
         conn.execute("DELETE FROM user_session")
         conn.execute("DELETE FROM app_user")
         conn.execute("DELETE FROM part")
+        conn.execute("DELETE FROM bom_line")
+        conn.execute("DELETE FROM bom_revision")
+        conn.execute("DELETE FROM project")
         conn.execute("UPDATE ipn_counter SET last_value = 0 WHERE id = 1")
         conn.commit()
     finally:

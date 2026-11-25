@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import sys
 
 from . import auth, db, enrich, sessions, users
+from .bom import BomError
+from .repo import boms as boms_repo
 from .repo import catalog
 from .repo import parts as repo
+from .repo.boms import DuplicateRevisionError
 
 
 def _print_key_row(row: dict) -> None:
@@ -147,6 +151,61 @@ def _run_user(args: argparse.Namespace) -> int:
     return 1
 
 
+def _run_bom(args: argparse.Namespace) -> int:
+    db.migrate()
+    conn = db.connect()
+    try:
+        if args.bom_command == "list":
+            project = boms_repo.get_project_by_name(conn, args.project)
+            if project is None:
+                print(f"no such project: {args.project}", file=sys.stderr)
+                return 1
+            for rev in boms_repo.list_revisions(conn, project["id"]):
+                lines = boms_repo.get_lines(conn, rev["id"])
+                unmatched = sum(1 for line in lines if line["match_status"] != "matched")
+                print(
+                    f"{rev['id']}\t{rev['label']}\t{rev['line_count']} lines"
+                    f"\t{unmatched} unmatched\t{rev['imported_at']}\t{rev['source_filename']}"
+                )
+            return 0
+
+        project = boms_repo.get_project_by_name(conn, args.project)
+        if project is None:
+            project = boms_repo.create_project(conn, name=args.project)
+        data = open(args.file, "rb").read()
+        try:
+            result = boms_repo.import_bom(
+                conn,
+                project_id=project["id"],
+                label=args.label,
+                source_filename=args.file,
+                data=data,
+                imported_by="cli",
+                note=args.note,
+                dry_run=args.dry_run,
+            )
+        except DuplicateRevisionError as error:
+            print(f"already imported as revision {error.revision_id}", file=sys.stderr)
+            return 1
+        except (BomError, ValueError) as error:
+            print(str(error), file=sys.stderr)
+            return 1
+        if args.dry_run:
+            print(json.dumps(result))
+        else:
+            print(
+                f"imported revision {result['revision_id']} ({result['revision']['label']}), "
+                f"{result['revision']['line_count']} lines"
+            )
+            print(
+                f"added {len(result['added'])}, removed {len(result['removed'])}, "
+                f"changed {len(result['changed'])}, unmatched {len(result['unmatched'])}"
+            )
+        return 0
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="shelfmark")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -186,10 +245,24 @@ def main(argv: list[str] | None = None) -> int:
     enrich_target.add_argument("--ipn", metavar="IPN", help="queue a single part")
     enrich_parser.add_argument("--force", action="store_true", help="re-run parts already enriched")
 
+    bom = sub.add_parser("bom", help="import and list BOM revisions")
+    bom_sub = bom.add_subparsers(dest="bom_command", required=True)
+    bom_import = bom_sub.add_parser("import", help="import a KiCad BOM CSV")
+    bom_import.add_argument("--project", required=True)
+    bom_import.add_argument("--file", required=True)
+    bom_import.add_argument("--label", required=True)
+    bom_import.add_argument("--note")
+    bom_import.add_argument("--dry-run", action="store_true")
+    bom_list = bom_sub.add_parser("list", help="list a project's revisions")
+    bom_list.add_argument("--project", required=True)
+
     args = parser.parse_args(argv)
 
     if args.command == "enrich":
         return _run_enrich(args)
+
+    if args.command == "bom":
+        return _run_bom(args)
 
     if args.command == "user":
         return _run_user(args)

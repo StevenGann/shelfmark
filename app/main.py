@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, auth, db, enrich
+from .boms_api import router as boms_api_router
 from .config import settings
 from .keys_api import router as keys_api_router
 from .parts_api import router as parts_api_router
@@ -104,6 +105,7 @@ async def rate_limit(request: Request, call_next) -> Response:
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(parts_api_router)
 app.include_router(stock_api_router)
+app.include_router(boms_api_router)
 app.include_router(keys_api_router)
 app.include_router(web_router)
 
