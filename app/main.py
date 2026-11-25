@@ -21,7 +21,9 @@ from .web import router as web_router
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-logger = logging.getLogger("shelfmark.queue")
+# uvicorn configures handlers for its own loggers only; a plain module logger
+# would be swallowed by lastResort below WARNING and the tick would be silent.
+logger = logging.getLogger("uvicorn.error")
 _tick_lock = asyncio.Lock()
 
 
