@@ -72,7 +72,7 @@ Everything comes from the environment, prefixed `SHELFMARK_`:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SHELFMARK_DATA_DIR` | `./data` | Directory holding the SQLite database and job packages |
-| `SHELFMARK_PORT` | `8080` | Listen port |
+| `SHELFMARK_LISTEN_PORT` | `8080` | Listen port |
 | `SHELFMARK_LOG_LEVEL` | `info` | Log verbosity |
 
 The container runs read-only with a single writable volume at `/data`, as a

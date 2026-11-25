@@ -10,7 +10,10 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("./data")
     host: str = "0.0.0.0"
-    port: int = 8080
+    # Named listen_port, not port: Kubernetes injects SHELFMARK_PORT=tcp://...
+    # for a Service called "shelfmark", and a settings field called port would
+    # try to parse that as an integer and crash the process at import.
+    listen_port: int = 8080
     log_level: str = "info"
 
     @property
