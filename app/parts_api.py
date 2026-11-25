@@ -9,6 +9,7 @@ from pydantic import BaseModel, field_validator
 
 from . import auth
 from .deps import Conn
+from .repo import catalog
 from .repo import parts as repo
 from .repo.parts import DuplicatePartError
 
@@ -85,6 +86,15 @@ def get_part(ipn: str, conn: Conn) -> dict:
     if part is None:
         raise HTTPException(status_code=404, detail="not found")
     return part
+
+
+@router.post("/{ipn}/enrich", status_code=202, dependencies=[Depends(auth.require("engineer"))])
+def queue_enrich(ipn: str, conn: Conn) -> dict:
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    job_id = catalog.queue_job(conn, int(part["id"]))
+    return {"job_id": job_id}
 
 
 @router.patch("/{ipn}", dependencies=[Depends(auth.require("engineer"))])

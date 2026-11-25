@@ -10,6 +10,12 @@
       <option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ c }}</option>
       {% endfor %}
     </select>
+    <select name="package" aria-label="Package">
+      <option value="">All packages</option>
+      {% for p in packages %}
+      <option value="{{ p }}" {% if p == package %}selected{% endif %}>{{ p|package }}</option>
+      {% endfor %}
+    </select>
     <button type="submit" class="primary">Search</button>
   </form>
   <a class="button primary new-part" href="/parts/new">New part</a>
@@ -19,15 +25,23 @@
 <table class="parts-table">
   <thead>
     <tr>
-      <th>IPN</th><th>MPN</th><th>Manufacturer</th><th>Description</th><th>Status</th>
+      <th></th><th>IPN</th><th>MPN</th><th>Manufacturer</th><th>Package</th><th>Description</th><th>Status</th>
     </tr>
   </thead>
   <tbody>
     {% for p in parts %}
     <tr>
+      <td>
+        {% if p.image_rel_path %}
+        <img class="thumb" src="/assets/{{ p.image_rel_path }}" alt="" loading="lazy">
+        {% else %}
+        <span class="thumb placeholder"></span>
+        {% endif %}
+      </td>
       <td><span class="label">IPN</span><a class="ipn" href="/parts/{{ p.ipn }}">{{ p.ipn }}</a></td>
       <td><span class="label">MPN</span><strong>{{ p.mpn }}</strong></td>
       <td><span class="label">Manufacturer</span>{{ p.manufacturer }}</td>
+      <td><span class="label">Package</span>{% if p.package %}<span class="chip">{{ p.package|package }}</span>{% else %}—{% endif %}</td>
       <td><span class="label">Description</span>{{ p.description or "—" }}</td>
       <td><span class="label">Status</span><span class="status status-{{ p.design_status }}">{{ p.design_status }}</span></td>
     </tr>
@@ -37,9 +51,9 @@
 
 {% if total_pages > 1 %}
 <nav class="pagination">
-  {% if page > 1 %}<a class="button" href="?q={{ q|urlencode }}&category={{ category|urlencode }}&page={{ page - 1 }}">Previous</a>{% endif %}
+  {% if page > 1 %}<a class="button" href="?q={{ q|urlencode }}&category={{ category|urlencode }}&package={{ package|urlencode }}&page={{ page - 1 }}">Previous</a>{% endif %}
   <span>Page {{ page }} of {{ total_pages }}</span>
-  {% if page < total_pages %}<a class="button" href="?q={{ q|urlencode }}&category={{ category|urlencode }}&page={{ page + 1 }}">Next</a>{% endif %}
+  {% if page < total_pages %}<a class="button" href="?q={{ q|urlencode }}&category={{ category|urlencode }}&package={{ package|urlencode }}&page={{ page + 1 }}">Next</a>{% endif %}
 </nav>
 {% endif %}
 

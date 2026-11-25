@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 
 from ..ipn import format_ipn
 from ..mpn import normalise_mpn
+from .catalog import _ensure_manufacturer
 
 DESIGN_STATUSES = ("active", "nrnd", "obsolete", "do-not-use")
 
@@ -25,6 +26,32 @@ _ALLOWED_UPDATE_FIELDS = {
     "design_status",
 }
 
+_PART_SELECT = (
+    "SELECT p.*, m.name AS manufacturer, m.website AS manufacturer_website "
+    "FROM part p JOIN manufacturer m ON m.id = p.manufacturer_id"
+)
+
+
+def _row_to_part(row: sqlite3.Row) -> dict:
+    return {
+        "id": row["id"],
+        "ipn": row["ipn"],
+        "mpn": row["mpn"],
+        "mpn_norm": row["mpn_norm"],
+        "manufacturer_id": row["manufacturer_id"],
+        "manufacturer": row["manufacturer"],
+        "manufacturer_website": row["manufacturer_website"],
+        "package": row["package"],
+        "description": row["description"],
+        "category": row["category"],
+        "parameters_json": row["parameters_json"],
+        "commodity_class_id": row["commodity_class_id"],
+        "design_status": row["design_status"],
+        "notes": row["notes"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
 
 class DuplicatePartError(Exception):
     """A part with the same normalised MPN and manufacturer already exists."""
@@ -36,24 +63,6 @@ class DuplicatePartError(Exception):
 
 def _utc_now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _row_to_part(row: sqlite3.Row) -> dict:
-    return {
-        "id": row["id"],
-        "ipn": row["ipn"],
-        "mpn": row["mpn"],
-        "mpn_norm": row["mpn_norm"],
-        "manufacturer": row["manufacturer"],
-        "description": row["description"],
-        "category": row["category"],
-        "parameters_json": row["parameters_json"],
-        "commodity_class_id": row["commodity_class_id"],
-        "design_status": row["design_status"],
-        "notes": row["notes"],
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
-    }
 
 
 def create_part(
@@ -74,9 +83,10 @@ def create_part(
     # the counter increment are atomic with the insert.
     conn.execute("BEGIN IMMEDIATE")
     try:
+        manufacturer_id = _ensure_manufacturer(conn, manufacturer)
         existing = conn.execute(
-            "SELECT ipn FROM part WHERE mpn_norm = ? AND manufacturer = ?",
-            (mpn_norm, manufacturer),
+            "SELECT ipn FROM part WHERE mpn_norm = ? AND manufacturer_id = ?",
+            (mpn_norm, manufacturer_id),
         ).fetchone()
         if existing is not None:
             raise DuplicatePartError(existing["ipn"])
@@ -91,7 +101,7 @@ def create_part(
         conn.execute(
             """
             INSERT INTO part (
-                ipn, mpn, mpn_norm, manufacturer, description, category,
+                ipn, mpn, mpn_norm, manufacturer_id, description, category,
                 design_status, notes, created_at, updated_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
@@ -99,7 +109,7 @@ def create_part(
                 ipn,
                 mpn,
                 mpn_norm,
-                manufacturer,
+                manufacturer_id,
                 description,
                 category,
                 design_status,
@@ -118,7 +128,12 @@ def create_part(
 
 
 def get_part(conn: sqlite3.Connection, ipn: str) -> dict | None:
-    row = conn.execute("SELECT * FROM part WHERE ipn = ?", (ipn,)).fetchone()
+    row = conn.execute(f"{_PART_SELECT} WHERE p.ipn = ?", (ipn,)).fetchone()
+    return None if row is None else _row_to_part(row)
+
+
+def get_part_by_id(conn: sqlite3.Connection, part_id: int) -> dict | None:
+    row = conn.execute(f"{_PART_SELECT} WHERE p.id = ?", (part_id,)).fetchone()
     return None if row is None else _row_to_part(row)
 
 
@@ -127,6 +142,7 @@ def list_parts(
     *,
     q: str,
     category: str | None = None,
+    package: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[list[dict], int]:
@@ -135,18 +151,26 @@ def list_parts(
     if q:
         like = f"%{q}%"
         clauses.append(
-            "(ipn LIKE ? OR mpn LIKE ? OR mpn_norm LIKE ?"
-            " OR manufacturer LIKE ? OR description LIKE ?)"
+            "(p.ipn LIKE ? OR p.mpn LIKE ? OR p.mpn_norm LIKE ?"
+            " OR m.name LIKE ? OR p.description LIKE ? OR p.package LIKE ?)"
         )
-        params.extend([like, like, like, like, like])
+        params.extend([like, like, like, like, like, like])
     if category is not None:
-        clauses.append("category = ?")
+        clauses.append("p.category = ?")
         params.append(category)
+    if package is not None:
+        clauses.append("p.package = ?")
+        params.append(package)
     where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
 
-    total = conn.execute(f"SELECT count(*) AS n FROM part{where}", params).fetchone()
+    total = conn.execute(
+        f"SELECT count(*) AS n FROM part p JOIN manufacturer m ON m.id = p.manufacturer_id{where}",
+        params,
+    ).fetchone()
     rows = conn.execute(
-        f"SELECT * FROM part{where} ORDER BY ipn LIMIT ? OFFSET ?",
+        f"SELECT p.*, m.name AS manufacturer, m.website AS manufacturer_website "
+        f"FROM part p JOIN manufacturer m ON m.id = p.manufacturer_id{where} "
+        f"ORDER BY p.ipn LIMIT ? OFFSET ?",
         [*params, limit, offset],
     ).fetchall()
     return [_row_to_part(r) for r in rows], int(total["n"])
@@ -162,21 +186,25 @@ def update_part(conn: sqlite3.Connection, ipn: str, **fields: object) -> dict | 
         raise ValueError(f"unknown fields: {sorted(unknown)}")
 
     mpn = fields.get("mpn", current["mpn"])
-    manufacturer = fields.get("manufacturer", current["manufacturer"])
     if "mpn" in fields:
         if not isinstance(mpn, str):
             raise ValueError("mpn must be a string")
         mpn_norm = normalise_mpn(mpn)
     else:
         mpn_norm = current["mpn_norm"]
-    if not isinstance(manufacturer, str):
-        raise ValueError("manufacturer must be a string")
+    if "manufacturer" in fields:
+        manufacturer = fields["manufacturer"]
+        if not isinstance(manufacturer, str):
+            raise ValueError("manufacturer must be a string")
+        manufacturer_id = _ensure_manufacturer(conn, manufacturer)
+    else:
+        manufacturer_id = current["manufacturer_id"]
     if "design_status" in fields and fields["design_status"] not in DESIGN_STATUSES:
         raise ValueError(f"invalid design_status: {fields['design_status']}")
 
     existing = conn.execute(
-        "SELECT ipn FROM part WHERE mpn_norm = ? AND manufacturer = ? AND ipn != ?",
-        (mpn_norm, manufacturer, ipn),
+        "SELECT ipn FROM part WHERE mpn_norm = ? AND manufacturer_id = ? AND ipn != ?",
+        (mpn_norm, manufacturer_id, ipn),
     ).fetchone()
     if existing is not None:
         raise DuplicatePartError(existing["ipn"])
@@ -189,8 +217,8 @@ def update_part(conn: sqlite3.Connection, ipn: str, **fields: object) -> dict | 
         setters.append("mpn_norm = ?")
         values.append(mpn_norm)
     if "manufacturer" in fields:
-        setters.append("manufacturer = ?")
-        values.append(manufacturer)
+        setters.append("manufacturer_id = ?")
+        values.append(manufacturer_id)
     for name in ("description", "category", "notes", "design_status"):
         if name in fields:
             setters.append(f"{name} = ?")

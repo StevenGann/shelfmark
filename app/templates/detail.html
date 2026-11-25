@@ -5,16 +5,86 @@
 
 {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
 
-<div class="part-meta">
-  <dl>
-    <dt>MPN</dt><dd>{{ part.mpn }}</dd>
-    <dt>Manufacturer</dt><dd>{{ part.manufacturer }}</dd>
-    <dt>Design status</dt><dd>{{ part.design_status }}</dd>
-    <dt>Category</dt><dd>{{ part.category or "—" }}</dd>
-    <dt>Description</dt><dd>{{ part.description or "—" }}</dd>
-    <dt>Notes</dt><dd>{{ part.notes or "—" }}</dd>
-  </dl>
+<div class="part-hero">
+  <div class="part-image">
+    {% if image and image.status == 'ok' %}
+    <img src="/assets/{{ image.rel_path }}" alt="Photo of {{ part.mpn }}">
+    {% else %}
+    <div class="package-drawing" aria-hidden="true">
+      <svg viewBox="0 0 64 64" width="96" height="96" role="img" aria-label="Package outline placeholder">
+        <rect x="8" y="14" width="48" height="36" rx="3" fill="none" stroke="currentColor" stroke-width="3"/>
+        {% for x in [16, 24, 32, 40, 48] %}
+        <line x1="{{ x }}" y1="50" x2="{{ x }}" y2="58" stroke="currentColor" stroke-width="3"/>
+        {% endfor %}
+      </svg>
+    </div>
+    {% if image and image.status == 'failed' %}
+    <p class="muted">No image — last fetch failed.</p>
+    {% endif %}
+    {% endif %}
+  </div>
+
+  <div class="part-fields">
+    <dl>
+      <dt>IPN</dt><dd class="ipn">{{ part.ipn }}</dd>
+      <dt>MPN</dt><dd>{{ part.mpn }}</dd>
+      <dt>Manufacturer</dt>
+      <dd>
+        {% if manufacturer_link %}
+        <a href="{{ manufacturer_link.url }}" rel="noopener">{{ part.manufacturer }}</a>
+        {% else %}
+        {{ part.manufacturer }}
+        {% endif %}
+      </dd>
+      {% if part.package %}
+      <dt>Package</dt>
+      <dd><span class="chip" title="{{ part.package }}">{{ part.package|package }}</span></dd>
+      {% endif %}
+      <dt>Category</dt><dd>{{ part.category or "—" }}</dd>
+      <dt>Description</dt><dd>{{ part.description or "—" }}</dd>
+    </dl>
+  </div>
 </div>
+
+<div class="link-row">
+  {% if datasheet and datasheet.status == 'ok' %}
+  <a class="link" href="/assets/{{ datasheet.rel_path }}">Datasheet</a>
+  {% if datasheet_source %}<a class="link subtle" href="{{ datasheet_source.url }}" rel="noopener">source</a>{% endif %}
+  {% elif datasheet and datasheet.status == 'failed' %}
+  <span class="link muted">Datasheet (failed)</span>
+  {% else %}
+  <span class="link muted">Datasheet</span>
+  {% endif %}
+  {% for link in distributor_links %}
+  <a class="link" href="{{ link.url }}" rel="noopener">{{ link.label }}</a>
+  {% endfor %}
+</div>
+
+<div class="enrich">
+  <form method="post" action="/parts/{{ part.ipn }}/enrich" class="inline-form">
+    <button type="submit" class="primary">Fetch metadata</button>
+  </form>
+  <span class="muted">
+    {% if last_job and last_job.status == 'done' %}
+    Last fetched {{ last_job.finished_at }}.
+    {% elif last_job and last_job.status == 'failed' %}
+    Last fetch failed: {{ last_job.last_error }}.
+    {% elif last_job and last_job.status == 'queued' %}
+    Fetch queued{{ last_job.last_error and ' — ' ~ last_job.last_error }}.
+    {% elif last_job and last_job.status == 'running' %}
+    Fetching now…
+    {% else %}
+    Never fetched.
+    {% endif %}
+  </span>
+</div>
+
+{% if not datasheet and not image and not distributor_links and not manufacturer_link %}
+<div class="empty">
+  <p>No enrichment data yet.</p>
+  <p>Fetch metadata to pull the datasheet, a supplier image and the distributor links from DigiKey.</p>
+</div>
+{% endif %}
 
 <h2>Edit</h2>
 <form method="post" action="/parts/{{ part.ipn }}" class="part-form">

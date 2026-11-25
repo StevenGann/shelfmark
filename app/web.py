@@ -9,14 +9,16 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import auth, sessions, users
+from . import assets, auth, sessions, users
 from .config import settings
 from .deps import Conn
+from .packages import normalise_package
 from .ratelimit import allow
 from .ratelimit import reset as reset_rate
+from .repo import catalog
 from .repo import parts as repo
 from .repo.parts import DESIGN_STATUSES, DuplicatePartError
 
@@ -24,6 +26,7 @@ router = APIRouter()
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.filters["package"] = normalise_package
 
 PAGE_SIZE = 50
 SESSION_COOKIE = "smk_session"
@@ -35,6 +38,13 @@ def _categories(conn: sqlite3.Connection) -> list[str]:
         "SELECT DISTINCT category FROM part WHERE category IS NOT NULL ORDER BY category"
     ).fetchall()
     return [row["category"] for row in rows]
+
+
+def _packages(conn: sqlite3.Connection) -> list[str]:
+    rows = conn.execute(
+        "SELECT DISTINCT package FROM part WHERE package IS NOT NULL ORDER BY package"
+    ).fetchall()
+    return [row["package"] for row in rows]
 
 
 def _form_values(form: Any) -> dict[str, str]:
@@ -363,12 +373,21 @@ def index(
     conn: Conn,
     q: str = "",
     category: str = "",
+    package: str = "",
     page: int = 1,
 ):
     page = max(1, page)
     items, total = repo.list_parts(
-        conn, q=q, category=category or None, limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE
+        conn,
+        q=q,
+        category=category or None,
+        package=package or None,
+        limit=PAGE_SIZE,
+        offset=(page - 1) * PAGE_SIZE,
     )
+    thumbnails = catalog.thumbnails(conn, [int(p["id"]) for p in items])
+    for part in items:
+        part["image_rel_path"] = thumbnails.get(int(part["id"]))
     total_pages = max(1, math.ceil(total / PAGE_SIZE))
     return _render(
         request,
@@ -378,9 +397,11 @@ def index(
             "total": total,
             "q": q,
             "category": category,
+            "package": package,
             "page": page,
             "total_pages": total_pages,
             "categories": _categories(conn),
+            "packages": _packages(conn),
         },
     )
 
@@ -416,8 +437,35 @@ def part_detail(ipn: str, request: Request, conn: Conn):
     return _render(
         request,
         "detail.html",
-        {"part": part, "form": {}, "statuses": DESIGN_STATUSES, "error": None},
+        _part_detail_context(conn, part),
     )
+
+
+@router.post("/parts/{ipn}/enrich", dependencies=[Depends(_require_session("engineer"))])
+def part_enrich(ipn: str, conn: Conn):
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    catalog.queue_job(conn, int(part["id"]))
+    return RedirectResponse(f"/parts/{ipn}", status_code=303)
+
+
+def _part_detail_context(conn: sqlite3.Connection, part: dict[str, Any]) -> dict[str, Any]:
+    links = catalog.list_part_links(conn, int(part["id"]))
+    assets = catalog.list_part_assets(conn, int(part["id"]))
+    by_kind = {row["kind"]: row for row in assets}
+    return {
+        "part": part,
+        "form": {},
+        "statuses": DESIGN_STATUSES,
+        "error": None,
+        "manufacturer_link": next((link for link in links if link["kind"] == "manufacturer"), None),
+        "distributor_links": [link for link in links if link["kind"] == "distributor"],
+        "datasheet_source": next((link for link in links if link["kind"] == "datasheet"), None),
+        "image": by_kind.get("image"),
+        "datasheet": by_kind.get("datasheet"),
+        "last_job": catalog.latest_job(conn, int(part["id"])),
+    }
 
 
 @router.post("/parts/{ipn}", dependencies=[Depends(_require_session("engineer"))])
@@ -428,13 +476,26 @@ async def part_update(ipn: str, request: Request, conn: Conn):
     part, error = _create_or_update(conn, values, ipn=ipn)
     if error is not None:
         current = repo.get_part(conn, ipn)
-        return _render(
-            request,
-            "detail.html",
-            {"part": current, "form": values, "statuses": DESIGN_STATUSES, "error": error},
-        )
+        assert current is not None
+        context = _part_detail_context(conn, current)
+        context.update({"form": values, "error": error})
+        return _render(request, "detail.html", context)
     assert part is not None
     return RedirectResponse(f"/parts/{part['ipn']}", status_code=303)
+
+
+@router.get("/assets/{rel_path:path}", dependencies=[Depends(_require_session())])
+def serve_asset(rel_path: str, conn: Conn):
+    row = catalog.get_part_asset_by_rel_path(conn, rel_path)
+    if row is None or row["status"] != "ok":
+        raise HTTPException(status_code=404, detail="not found")
+    path = assets.resolve(rel_path)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail="not found")
+    headers = {"Cache-Control": "private, max-age=86400"}
+    if row["content_type"] == "application/pdf":
+        headers["Content-Disposition"] = "inline"
+    return FileResponse(path, media_type=row["content_type"], headers=headers)
 
 
 def _create_or_update(

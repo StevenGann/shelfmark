@@ -1,0 +1,95 @@
+{
+  "Product": {
+    "Description": {
+      "ProductDescription": "IC DAC 16BIT 40-VQFN",
+      "DetailedDescription": "16 Bit Digital to Analog Converter 1 40-VQFN (6x6)"
+    },
+    "Manufacturer": {
+      "Id": 296,
+      "Name": "Texas Instruments"
+    },
+    "ManufacturerProductNumber": "DAC81416RHAT",
+    "ProductUrl": "https://www.digikey.com/en/products/detail/texas-instruments/DAC81416RHAT/9860746",
+    "DatasheetUrl": "https://www.ti.com/general/docs/suppproductinfo.tsp?distId=10&gotoUrl=https%3A%2F%2Fwww.ti.com%2Flit%2Fgpn%2Fdac81416",
+    "PhotoUrl": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/8919/MFG_296%7E4204276%7ERHA%7E40.jpg",
+    "QuantityAvailable": 1951,
+    "ProductStatus": {
+      "Id": 0,
+      "Status": "Active"
+    },
+    "Parameters": [
+      {
+        "ParameterId": 153,
+        "ParameterText": "Number of Bits",
+        "ParameterType": "String",
+        "ValueId": "103710",
+        "ValueText": "16"
+      },
+      {
+        "ParameterId": 1973,
+        "ParameterText": "Number of D/A Converters",
+        "ParameterType": "String",
+        "ValueId": "39665",
+        "ValueText": "1"
+      },
+      {
+        "ParameterId": 997,
+        "ParameterText": "Settling Time",
+        "ParameterType": "String",
+        "ValueId": "83126",
+        "ValueText": "12\u00b5s (Typ)"
+      },
+      {
+        "ParameterId": 41,
+        "ParameterText": "Output Type",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 1975,
+        "ParameterText": "Differential Output",
+        "ParameterType": "String",
+        "ValueId": "380240",
+        "ValueText": "No"
+      },
+      {
+        "ParameterId": 243,
+        "ParameterText": "Data Interface",
+        "ParameterType": "String",
+        "ValueId": "401297",
+        "ValueText": "Serial"
+      },
+      {
+        "ParameterId": 16,
+        "ParameterText": "Package / Case",
+        "ParameterType": "String",
+        "ValueId": "215352",
+        "ValueText": "40-VFQFN Exposed Pad"
+      },
+      {
+        "ParameterId": 1291,
+        "ParameterText": "Supplier Device Package",
+        "ParameterType": "String",
+        "ValueId": "215360",
+        "ValueText": "40-VQFN (6x6)"
+      }
+    ],
+    "ProductVariations": [
+      {
+        "DigiKeyProductNumber": "296-53025-2-ND",
+        "PackageType": {
+          "Id": 1,
+          "Name": "Tape & Reel (TR)"
+        }
+      },
+      {
+        "DigiKeyProductNumber": "296-53025-1-ND",
+        "PackageType": {
+          "Id": 2,
+          "Name": "Cut Tape (CT)"
+        }
+      }
+    ]
+  }
+}

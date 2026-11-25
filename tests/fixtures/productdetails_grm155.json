@@ -1,0 +1,87 @@
+{
+  "Product": {
+    "Description": {
+      "ProductDescription": "CAP CER 0.1UF 16V X7R 0402",
+      "DetailedDescription": "0.1 \u00b5F \u00b110% 16V Ceramic Capacitor X7R 0402 (1005 Metric)"
+    },
+    "Manufacturer": {
+      "Id": 490,
+      "Name": "Murata Electronics"
+    },
+    "ManufacturerProductNumber": "GRM155R71C104KA88D",
+    "ProductUrl": "https://www.digikey.com/en/products/detail/murata-electronics/GRM155R71C104KA88D/675947",
+    "DatasheetUrl": "//mm.digikey.com/Volume0/opasdata/d220001/medias/docus/8942/490_Chip_Multilayer_CAT2021_MLCC.pdf",
+    "PhotoUrl": "https://mm.digikey.com/Volume0/opasdata/d220001/medias/images/5447/490-Ceramic-Capacitor-Tan-Field.jpg",
+    "ProductStatus": {
+      "Id": 0,
+      "Status": "Active"
+    },
+    "Parameters": [
+      {
+        "ParameterId": 2049,
+        "ParameterText": "Capacitance",
+        "ParameterType": "UnitOfMeasure",
+        "ValueId": "0.1 \u00b5F",
+        "ValueText": "0.1 \u00b5F"
+      },
+      {
+        "ParameterId": 3,
+        "ParameterText": "Tolerance",
+        "ParameterType": "String",
+        "ValueId": "1340",
+        "ValueText": "\u00b110%"
+      },
+      {
+        "ParameterId": 14,
+        "ParameterText": "Voltage - Rated",
+        "ParameterType": "String",
+        "ValueId": "108742",
+        "ValueText": "16V"
+      },
+      {
+        "ParameterId": 17,
+        "ParameterText": "Temperature Coefficient",
+        "ParameterType": "String",
+        "ValueId": "422415",
+        "ValueText": "X7R"
+      },
+      {
+        "ParameterId": 252,
+        "ParameterText": "Operating Temperature",
+        "ParameterType": "String",
+        "ValueId": "242918",
+        "ValueText": "-55\u00b0C ~ 125\u00b0C"
+      },
+      {
+        "ParameterId": 5,
+        "ParameterText": "Features",
+        "ParameterType": "String",
+        "ValueId": "1",
+        "ValueText": "-"
+      },
+      {
+        "ParameterId": 16,
+        "ParameterText": "Package / Case",
+        "ParameterType": "String",
+        "ValueId": "39158",
+        "ValueText": "0402 (1005 Metric)"
+      }
+    ],
+    "ProductVariations": [
+      {
+        "DigiKeyProductNumber": "490-3261-2-ND",
+        "PackageType": {
+          "Id": 1,
+          "Name": "Tape & Reel (TR)"
+        }
+      },
+      {
+        "DigiKeyProductNumber": "490-3261-1-ND",
+        "PackageType": {
+          "Id": 2,
+          "Name": "Cut Tape (CT)"
+        }
+      }
+    ]
+  }
+}

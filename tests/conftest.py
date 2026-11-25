@@ -1,12 +1,15 @@
 import os
+import shutil
 import tempfile
 from uuid import uuid4
 
 import pytest
 
-# Configure a scratch data directory before any test imports the app: the
-# settings object is built at import time.
-os.environ.setdefault("SHELFMARK_DATA_DIR", tempfile.mkdtemp(prefix="shelfmark-test-"))
+# Configure scratch directories before any test imports the app: the settings
+# object is built at import time.
+_BASE_DIR = tempfile.mkdtemp(prefix="shelfmark-test-")
+os.environ.setdefault("SHELFMARK_DATA_DIR", _BASE_DIR)
+os.environ.setdefault("SHELFMARK_ASSET_DIR", os.path.join(_BASE_DIR, "assets"))
 
 
 @pytest.fixture(autouse=True)
@@ -19,6 +22,7 @@ def reset_db():
     ``api_key`` table.
     """
     from app import db
+    from app.config import settings
 
     db.migrate()
     conn = db.connect()
@@ -30,6 +34,7 @@ def reset_db():
         conn.commit()
     finally:
         conn.close()
+    shutil.rmtree(settings.asset_dir, ignore_errors=True)
     yield
 
 

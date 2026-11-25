@@ -9,6 +9,15 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="SHELFMARK_")
 
     data_dir: Path = Path("./data")
+    # Local copies of datasheets and images live here, outside the database so
+    # they survive on an NFS mount and are served without a database round trip.
+    asset_dir: Path = Path("/data/assets")
+    # DigiKey Product Information API v4 client credentials. When either is
+    # empty, enrichment jobs stay queued and report "credentials not configured".
+    digikey_client_id: str = ""
+    digikey_client_secret: str = ""
+    # Daily cap on DigiKey API calls (productdetails lookups, not asset downloads).
+    digikey_daily_budget: int = 1000
     host: str = "0.0.0.0"
     # Named listen_port, not port: Kubernetes injects SHELFMARK_PORT=tcp://...
     # for a Service called "shelfmark", and a settings field called port would
