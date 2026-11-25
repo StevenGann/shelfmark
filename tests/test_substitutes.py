@@ -140,10 +140,10 @@ def test_bom_ingest_fills_a_missing_value_and_never_overwrites_one(client):
 
     project = client.post("/api/projects", json={"name": "value-fill"}).json()
     csv = (
-        "Reference,Qty,Value,Footprint,MPN,Manufacturer\n"
-        "R1,1,10k,0402,RC0402FR-0710KL,Yageo\n"
-        "R2,1,10k,0402,RC0402JR-0710KL,Yageo\n"
-    ).encode()
+        b"Reference,Qty,Value,Footprint,MPN,Manufacturer\n"
+        b"R1,1,10k,0402,RC0402FR-0710KL,Yageo\n"
+        b"R2,1,10k,0402,RC0402JR-0710KL,Yageo\n"
+    )
     imported = client.post(
         f"/api/projects/{project['id']}/boms",
         data={"label": "rev A"},
