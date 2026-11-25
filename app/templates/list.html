@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Parts · Shelfmark{% endblock %}
+{% block content %}
+<div class="toolbar">
+  <form method="get" action="/" class="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="IPN, MPN, manufacturer, description" aria-label="Search parts">
+    <select name="category" aria-label="Category">
+      <option value="">All categories</option>
+      {% for c in categories %}
+      <option value="{{ c }}" {% if c == category %}selected{% endif %}>{{ c }}</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="primary">Search</button>
+  </form>
+  <a class="button primary new-part" href="/parts/new">New part</a>
+</div>
+
+{% if parts %}
+<table class="parts-table">
+  <thead>
+    <tr>
+      <th>IPN</th><th>MPN</th><th>Manufacturer</th><th>Description</th><th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in parts %}
+    <tr>
+      <td><span class="label">IPN</span><a class="ipn" href="/parts/{{ p.ipn }}">{{ p.ipn }}</a></td>
+      <td><span class="label">MPN</span><strong>{{ p.mpn }}</strong></td>
+      <td><span class="label">Manufacturer</span>{{ p.manufacturer }}</td>
+      <td><span class="label">Description</span>{{ p.description or "—" }}</td>
+      <td><span class="label">Status</span><span class="status status-{{ p.design_status }}">{{ p.design_status }}</span></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{% if total_pages > 1 %}
+<nav class="pagination">
+  {% if page > 1 %}<a class="button" href="?q={{ q|urlencode }}&category={{ category|urlencode }}&page={{ page - 1 }}">Previous</a>{% endif %}
+  <span>Page {{ page }} of {{ total_pages }}</span>
+  {% if page < total_pages %}<a class="button" href="?q={{ q|urlencode }}&category={{ category|urlencode }}&page={{ page + 1 }}">Next</a>{% endif %}
+</nav>
+{% endif %}
+
+<div class="sticky-actions">
+  <a class="button primary" href="/parts/new">New part</a>
+</div>
+{% else %}
+<div class="empty">
+  {% if q or category %}
+  <p>No parts match your search.</p>
+  <p>Clear the search, or <a href="/parts/new">add a new part</a>.</p>
+  {% else %}
+  <p>No parts yet.</p>
+  <p><a class="button primary" href="/parts/new">Add your first part</a></p>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

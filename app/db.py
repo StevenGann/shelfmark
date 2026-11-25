@@ -7,6 +7,7 @@ open a connection per request rather than pooling.
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
 
 from .config import settings
@@ -16,11 +17,24 @@ MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
 
 def connect() -> sqlite3.Connection:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(settings.db_path, timeout=10)
+    # FastAPI resolves the connection dependency in the event-loop thread but
+    # runs the (sync) endpoint in a worker thread, so a per-request connection
+    # crosses a thread boundary. One request owns one connection and never
+    # shares it, so disabling the same-thread check is safe here.
+    conn = sqlite3.connect(settings.db_path, timeout=10, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
     return conn
+
+
+def connection() -> Iterator[sqlite3.Connection]:
+    """FastAPI dependency: one connection per request, closed afterwards."""
+    conn = connect()
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _applied(conn: sqlite3.Connection) -> set[str]:

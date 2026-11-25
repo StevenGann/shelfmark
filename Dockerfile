@@ -2,11 +2,12 @@ FROM python:3.12-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 
+# Install from pyproject rather than a second hard-coded dependency list: the
+# two lists drifted the first time a dependency was added.
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir "fastapi>=0.115" "uvicorn[standard]>=0.30" "pydantic-settings>=2.3"
-
 COPY app ./app
 COPY migrations ./migrations
+RUN pip install --no-cache-dir .
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin shelfmark \
  && mkdir -p /data && chown shelfmark:shelfmark /data

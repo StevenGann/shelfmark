@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     # try to parse that as an integer and crash the process at import.
     listen_port: int = 8080
     log_level: str = "info"
+    ipn_prefix: str = "SK"
 
     @property
     def db_path(self) -> Path:

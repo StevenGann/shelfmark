@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ part.ipn }} · Shelfmark{% endblock %}
+{% block content %}
+<h1>{{ part.ipn }}</h1>
+
+{% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+
+<div class="part-meta">
+  <dl>
+    <dt>MPN</dt><dd>{{ part.mpn }}</dd>
+    <dt>Manufacturer</dt><dd>{{ part.manufacturer }}</dd>
+    <dt>Design status</dt><dd>{{ part.design_status }}</dd>
+    <dt>Category</dt><dd>{{ part.category or "—" }}</dd>
+    <dt>Description</dt><dd>{{ part.description or "—" }}</dd>
+    <dt>Notes</dt><dd>{{ part.notes or "—" }}</dd>
+  </dl>
+</div>
+
+<h2>Edit</h2>
+<form method="post" action="/parts/{{ part.ipn }}" class="part-form">
+  <label>MPN
+    <input name="mpn" value="{{ form.get('mpn', part.mpn) }}" required>
+  </label>
+  <label>Manufacturer
+    <input name="manufacturer" value="{{ form.get('manufacturer', part.manufacturer) }}" required>
+  </label>
+  <label>Description
+    <input name="description" value="{{ form.get('description', part.description or '') }}">
+  </label>
+  <label>Category
+    <input name="category" value="{{ form.get('category', part.category or '') }}">
+  </label>
+  <label>Notes
+    <textarea name="notes" rows="3">{{ form.get('notes', part.notes or '') }}</textarea>
+  </label>
+  <label>Design status
+    <select name="design_status">
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if form.get('design_status', part.design_status) == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="primary">Save</button>
+</form>
+
+<p><a href="/">Back to list</a></p>
+{% endblock %}
