@@ -448,12 +448,27 @@ def run_enrichment(conn: sqlite3.Connection, job: dict[str, Any]) -> None:
             source="digikey",
             fetched_at=now,
         )
-        _fetch_asset(
-            conn, part, "datasheet", parsed["datasheet_url"], manufacturer=parsed["manufacturer"]
-        )
+        if not _asset_is_uploaded(conn, int(part["id"]), "datasheet"):
+            _fetch_asset(
+                conn,
+                part,
+                "datasheet",
+                parsed["datasheet_url"],
+                manufacturer=parsed["manufacturer"],
+            )
 
-    if parsed["photo_url"]:
+    if parsed["photo_url"] and not _asset_is_uploaded(conn, int(part["id"]), "image"):
         _fetch_asset(conn, part, "image", parsed["photo_url"])
+
+
+def _asset_is_uploaded(conn: sqlite3.Connection, part_id: int, kind: str) -> bool:
+    """True when the current asset of *kind* was supplied by a human.
+
+    A human override stays put until a human removes it: the queue must not
+    quietly undo bench knowledge on the next pass.
+    """
+    asset = catalog.get_part_asset(conn, part_id, kind)
+    return asset is not None and asset["source"] == "upload"
 
 
 def _backoff_seconds(attempts: int) -> int:

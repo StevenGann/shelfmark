@@ -159,6 +159,9 @@ def add_part_asset(
     fetched_at: str,
     status: str,
     error: str | None = None,
+    source: str = "digikey",
+    uploaded_by: str | None = None,
+    original_filename: str | None = None,
 ) -> bool:
     """Record an asset result, upserting on (part, kind, source_url)."""
     if kind not in (IMAGE_KIND, DATASHEET_KIND):
@@ -169,8 +172,8 @@ def add_part_asset(
         """
         INSERT INTO part_asset (
           part_id, kind, source_url, rel_path, content_type, bytes, sha256,
-          fetched_at, status, error
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          fetched_at, status, error, source, uploaded_by, original_filename
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT (part_id, kind, source_url) DO UPDATE SET
           rel_path = excluded.rel_path,
           content_type = excluded.content_type,
@@ -178,7 +181,10 @@ def add_part_asset(
           sha256 = excluded.sha256,
           fetched_at = excluded.fetched_at,
           status = excluded.status,
-          error = excluded.error
+          error = excluded.error,
+          source = excluded.source,
+          uploaded_by = excluded.uploaded_by,
+          original_filename = excluded.original_filename
         """,
         (
             part_id,
@@ -191,6 +197,9 @@ def add_part_asset(
             fetched_at,
             status,
             error,
+            source,
+            uploaded_by,
+            original_filename,
         ),
     )
     conn.commit()
@@ -228,7 +237,19 @@ def _row_to_asset(row: sqlite3.Row) -> dict[str, Any]:
         "fetched_at": row["fetched_at"],
         "status": row["status"],
         "error": row["error"],
+        "source": row["source"],
+        "uploaded_by": row["uploaded_by"],
+        "original_filename": row["original_filename"],
     }
+
+
+def get_part_asset(conn: sqlite3.Connection, part_id: int, kind: str) -> dict[str, Any] | None:
+    """Return the current (most recently recorded) asset of *kind*, if any."""
+    row = conn.execute(
+        "SELECT * FROM part_asset WHERE part_id = ? AND kind = ? ORDER BY id DESC LIMIT 1",
+        (part_id, kind),
+    ).fetchone()
+    return None if row is None else _row_to_asset(row)
 
 
 def thumbnails(conn: sqlite3.Connection, part_ids: list[int]) -> dict[int, str]:

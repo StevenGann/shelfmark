@@ -1,7 +1,7 @@
 """Local asset storage for datasheets and images.
 
-Files live under ``settings.asset_dir`` as ``parts/<ipn>/datasheet.pdf`` and
-``parts/<ipn>/image.jpg``. The database stores the path relative to that root,
+Files live under ``settings.asset_dir`` as ``parts/<ipn>/datasheet.<ext>`` and
+``parts/<ipn>/image.<ext>``. The database stores the path relative to that root,
 never an absolute path, so the volume can move between mounts and pods.
 
 Writes are atomic: bytes go to ``<name>.tmp`` in the same directory and are
@@ -17,15 +17,49 @@ from .config import settings
 
 _EXTENSION = {"datasheet": "pdf", "image": "jpg"}
 
+DATASHEET_MAX_BYTES = 25 * 1024 * 1024
+IMAGE_MAX_BYTES = 10 * 1024 * 1024
+
+_PDF_SIGNATURE = b"%PDF-"
+_JPEG_SIGNATURE = b"\xff\xd8\xff"
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
 
 def asset_root() -> Path:
     return settings.asset_dir
 
 
-def rel_path_for(ipn: str, kind: str) -> str:
-    """The path (relative to the asset root) for a part's asset of *kind*."""
-    ext = _EXTENSION[kind]
+def rel_path_for(ipn: str, kind: str, ext: str | None = None) -> str:
+    """The path (relative to the asset root) for a part's asset of *kind*.
+
+    *ext* is the real file extension (``pdf``, ``jpg``, ``png`` or ``webp``);
+    when omitted the per-kind default is used.
+    """
+    if ext is None:
+        ext = _EXTENSION[kind]
     return f"parts/{ipn}/{kind}.{ext}"
+
+
+def content_type_for(kind: str, head: bytes) -> tuple[str, str] | None:
+    """Return ``(content_type, extension)`` for *kind* when *head* matches.
+
+    *head* is the leading bytes of an upload; the browser's ``Content-Type``
+    and the filename are advisory, so only the magic bytes decide. Returns
+    ``None`` when *kind* is unknown or the bytes do not match what it expects.
+    """
+    if kind == "datasheet":
+        if head.startswith(_PDF_SIGNATURE):
+            return ("application/pdf", "pdf")
+        return None
+    if kind == "image":
+        if head.startswith(_JPEG_SIGNATURE):
+            return ("image/jpeg", "jpg")
+        if head.startswith(_PNG_SIGNATURE):
+            return ("image/png", "png")
+        if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+            return ("image/webp", "webp")
+        return None
+    return None
 
 
 def absolute(rel_path: str) -> Path:

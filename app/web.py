@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import math
 import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -22,15 +24,42 @@ from .repo import catalog
 from .repo import parts as repo
 from .repo.parts import DESIGN_STATUSES, DuplicatePartError
 
+
+def _utc_now() -> str:
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _format_asset_date(value: str | None) -> str:
+    """Render a stored ``YYYY-MM-DDTHH:MM:SSZ`` timestamp for the page."""
+    if not value:
+        return ""
+    try:
+        return datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").strftime("%d %b %Y")
+    except ValueError:
+        return value
+
+
 router = APIRouter()
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["package"] = normalise_package
+templates.env.filters["assetdate"] = _format_asset_date
 
 PAGE_SIZE = 50
 SESSION_COOKIE = "smk_session"
 LOGIN_ERROR = "Invalid username or password."
+
+_ASSET_KINDS = ("image", "datasheet")
+_UPLOAD_CHUNK = 64 * 1024
+_WRONG_TYPE_MESSAGE = {
+    "datasheet": "Expected a PDF datasheet.",
+    "image": "Expected a JPEG, PNG or WebP image.",
+}
+_TOO_LARGE_MESSAGE = {
+    "datasheet": "Datasheet exceeds the 25 MB limit.",
+    "image": "Image exceeds the 10 MB limit.",
+}
 
 
 def _categories(conn: sqlite3.Connection) -> list[str]:
@@ -496,6 +525,132 @@ def serve_asset(rel_path: str, conn: Conn):
     if row["content_type"] == "application/pdf":
         headers["Content-Disposition"] = "inline"
     return FileResponse(path, media_type=row["content_type"], headers=headers)
+
+
+def _remove_file(rel_path: str) -> None:
+    path = assets.resolve(rel_path)
+    if path is not None:
+        path.unlink(missing_ok=True)
+
+
+def _remove_asset(conn: sqlite3.Connection, part_id: int, kind: str) -> None:
+    """Drop the recorded rows of *kind* and their files on disk."""
+    for row in catalog.list_part_assets(conn, part_id):
+        if row["kind"] == kind:
+            _remove_file(row["rel_path"])
+    catalog.delete_part_assets_of_kind(conn, part_id, kind)
+
+
+async def _store_upload(ipn: str, kind: str, upload: Any) -> tuple[Path, str, str, str, str, int]:
+    """Stream *upload* to a temp file, validating content and size.
+
+    Returns ``(tmp, rel_path, content_type, sha256, filename, size)``. The temp
+    file is removed on every failure path; the caller commits it into place.
+    """
+    if upload is None or not hasattr(upload, "read"):
+        raise ValueError("No file was selected.")
+    max_bytes = assets.DATASHEET_MAX_BYTES if kind == "datasheet" else assets.IMAGE_MAX_BYTES
+    filename = getattr(upload, "filename", None) or ""
+    hasher = hashlib.sha256()
+    total = 0
+    rel_path = ""
+    content_type = ""
+    tmp: Path | None = None
+    out = None
+    try:
+        while True:
+            chunk = await upload.read(_UPLOAD_CHUNK)
+            if not chunk:
+                break
+            if out is None:
+                sniffed = assets.content_type_for(kind, chunk)
+                if sniffed is None:
+                    raise ValueError(_WRONG_TYPE_MESSAGE[kind])
+                content_type, ext = sniffed
+                rel_path = assets.rel_path_for(ipn, kind, ext)
+                tmp = assets.tmp_path(rel_path)
+                out = open(tmp, "wb")
+            total += len(chunk)
+            if total > max_bytes:
+                raise ValueError(_TOO_LARGE_MESSAGE[kind])
+            hasher.update(chunk)
+            out.write(chunk)
+        if out is None:
+            raise ValueError("The uploaded file is empty.")
+        out.close()
+        out = None
+        assert tmp is not None
+        return tmp, rel_path, content_type, hasher.hexdigest(), filename, total
+    except BaseException:
+        if out is not None:
+            out.close()
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+        raise
+
+
+@router.post("/parts/{ipn}/assets/{kind}", dependencies=[Depends(_require_session("engineer"))])
+async def upload_asset(ipn: str, kind: str, request: Request, conn: Conn):
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    if kind not in _ASSET_KINDS:
+        raise HTTPException(status_code=404, detail="not found")
+
+    user = request.state.user
+    form = await request.form()
+    if (form.get("_method") or "") == "delete":
+        _remove_asset(conn, int(part["id"]), kind)
+        return RedirectResponse(f"/parts/{ipn}", status_code=303)
+
+    try:
+        tmp, rel_path, content_type, sha256, filename, size = await _store_upload(
+            ipn, kind, form.get("file")
+        )
+    except ValueError as error:
+        context = _part_detail_context(conn, part)
+        context["error"] = str(error)
+        return _render(request, "detail.html", context, status_code=400)
+
+    # Commit the new file first: if the write fails, the asset that was already
+    # there survives. Old files that lived at a different path go afterwards.
+    try:
+        assets.commit(tmp, rel_path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    for row in catalog.list_part_assets(conn, int(part["id"])):
+        if row["kind"] == kind and row["rel_path"] != rel_path:
+            _remove_file(row["rel_path"])
+    catalog.delete_part_assets_of_kind(conn, int(part["id"]), kind)
+
+    catalog.add_part_asset(
+        conn,
+        int(part["id"]),
+        kind=kind,
+        source_url=f"upload:{user['username']}:{sha256[:12]}",
+        rel_path=rel_path,
+        content_type=content_type,
+        bytes=size,
+        sha256=sha256,
+        fetched_at=_utc_now(),
+        status="ok",
+        source="upload",
+        uploaded_by=user["username"],
+        original_filename=filename,
+    )
+    return RedirectResponse(f"/parts/{ipn}", status_code=303)
+
+
+@router.delete("/parts/{ipn}/assets/{kind}", dependencies=[Depends(_require_session("engineer"))])
+def delete_asset(ipn: str, kind: str, conn: Conn):
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    if kind not in _ASSET_KINDS:
+        raise HTTPException(status_code=404, detail="not found")
+    _remove_asset(conn, int(part["id"]), kind)
+    return RedirectResponse(f"/parts/{ipn}", status_code=303)
 
 
 def _create_or_update(

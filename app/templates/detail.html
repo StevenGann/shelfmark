@@ -79,6 +79,58 @@
   </span>
 </div>
 
+<div class="assets">
+  <h2>Assets</h2>
+
+  <div class="asset-row">
+    <div class="asset-info">
+      <span class="asset-kind">Image</span>
+      {% if image and image.status == 'ok' %}
+      <a href="/assets/{{ image.rel_path }}">view</a>
+      {% else %}
+      <span class="muted">No image yet.</span>
+      {% endif %}
+      {% if image and image.source == 'upload' %}
+      <span class="muted">uploaded by {{ image.uploaded_by }}, {{ image.fetched_at | assetdate }}</span>
+      {% endif %}
+    </div>
+    <form method="post" action="/parts/{{ part.ipn }}/assets/image" enctype="multipart/form-data" class="asset-upload">
+      <input type="file" name="file" accept="image/*">
+      <button type="submit" class="primary">Upload</button>
+    </form>
+    {% if image and image.source == 'upload' %}
+    <form method="post" action="/parts/{{ part.ipn }}/assets/image" class="asset-remove">
+      <input type="hidden" name="_method" value="delete">
+      <button type="submit">Remove upload</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="asset-row">
+    <div class="asset-info">
+      <span class="asset-kind">Datasheet</span>
+      {% if datasheet and datasheet.status == 'ok' %}
+      <a href="/assets/{{ datasheet.rel_path }}">view</a>
+      {% else %}
+      <span class="muted">No datasheet yet.</span>
+      {% endif %}
+      {% if datasheet and datasheet.source == 'upload' %}
+      <span class="muted">uploaded by {{ datasheet.uploaded_by }}, {{ datasheet.fetched_at | assetdate }}</span>
+      {% endif %}
+    </div>
+    <form method="post" action="/parts/{{ part.ipn }}/assets/datasheet" enctype="multipart/form-data" class="asset-upload">
+      <input type="file" name="file" accept="application/pdf">
+      <button type="submit" class="primary">Upload</button>
+    </form>
+    {% if datasheet and datasheet.source == 'upload' %}
+    <form method="post" action="/parts/{{ part.ipn }}/assets/datasheet" class="asset-remove">
+      <input type="hidden" name="_method" value="delete">
+      <button type="submit">Remove upload</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+
 {% if not datasheet and not image and not distributor_links and not manufacturer_link %}
 <div class="empty">
   <p>No enrichment data yet.</p>
