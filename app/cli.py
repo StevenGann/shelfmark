@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import sys
 
-from . import auth, db, enrich
+from . import auth, db, enrich, sessions, users
 from .repo import catalog
 from .repo import parts as repo
 
@@ -50,6 +51,102 @@ def _run_enrich(args: argparse.Namespace) -> int:
     return 0
 
 
+def _read_password() -> str:
+    """Read a new password from a terminal, or from stdin when piped.
+
+    The password is never taken from argv: an argument is visible in ``ps`` and
+    lands in shell history.
+    """
+    if sys.stdin.isatty():
+        first = getpass.getpass("New password: ")
+        second = getpass.getpass("Repeat: ")
+        if first != second:
+            raise ValueError("Passwords do not match.")
+        return first
+    return sys.stdin.readline().rstrip("\n")
+
+
+def _print_user_row(row: dict) -> None:
+    state = "disabled" if row.get("disabled_at") else "active"
+    last = row.get("last_login_at") or "-"
+    print(f"{row['id']}\t{row['username']}\t{row['role']}\t{state}\t{row['created_at']}\t{last}")
+
+
+def _find_user(conn, username: str):
+    return users.get_user_by_username(conn, username)
+
+
+def _enabled_admins(conn) -> list[dict]:
+    return [u for u in users.list_users(conn) if u["role"] == "admin" and not u["disabled_at"]]
+
+
+def _run_user(args: argparse.Namespace) -> int:
+    db.migrate()
+    conn = db.connect()
+    try:
+        if args.user_command == "list":
+            for row in users.list_users(conn):
+                _print_user_row(row)
+            return 0
+
+        if args.user_command == "create":
+            password = _read_password()
+            try:
+                created = users.create_user(conn, args.username, password, args.role)
+            except ValueError as error:
+                print(str(error), file=sys.stderr)
+                return 1
+            print(f"created {created['username']} ({created['role']})")
+            return 0
+
+        user = _find_user(conn, args.username)
+        if user is None:
+            print(f"no such user: {args.username}", file=sys.stderr)
+            return 1
+
+        if args.user_command == "passwd":
+            password = _read_password()
+            try:
+                users.set_password(conn, int(user["id"]), password)
+            except ValueError as error:
+                print(str(error), file=sys.stderr)
+                return 1
+            # A reset is also a lock-out for whoever was already holding a
+            # session with the old password.
+            sessions.end_all_for_user(conn, int(user["id"]))
+            print(f"password changed for {user['username']}; sessions ended")
+            return 0
+
+        if args.user_command == "disable":
+            if (
+                user["role"] == "admin"
+                and not user["disabled_at"]
+                and len(_enabled_admins(conn)) <= 1
+            ):
+                print("refusing to disable the last active admin", file=sys.stderr)
+                return 1
+            users.set_disabled(conn, int(user["id"]), True)
+            sessions.end_all_for_user(conn, int(user["id"]))
+            print(f"disabled {user['username']}")
+            return 0
+
+        if args.user_command == "enable":
+            users.set_disabled(conn, int(user["id"]), False)
+            print(f"enabled {user['username']}")
+            return 0
+
+        if args.user_command == "role":
+            if user["role"] == "admin" and args.role != "admin" and len(_enabled_admins(conn)) <= 1:
+                print("refusing to demote the last active admin", file=sys.stderr)
+                return 1
+            users.set_role(conn, int(user["id"]), args.role)
+            print(f"{user['username']} is now {args.role}")
+            return 0
+    finally:
+        conn.close()
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="shelfmark")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -66,6 +163,23 @@ def main(argv: list[str] | None = None) -> int:
     revoke = key_sub.add_parser("revoke", help="revoke a key")
     revoke.add_argument("--name", required=True)
 
+    user = sub.add_parser("user", help="manage human accounts")
+    user_sub = user.add_subparsers(dest="user_command", required=True)
+    user_sub.add_parser("list", help="list accounts")
+    user_create = user_sub.add_parser("create", help="create an account")
+    user_create.add_argument("username")
+    user_create.add_argument("--role", required=True, choices=users.ROLE_ORDER)
+    for name, help_text in (
+        ("passwd", "set a password (reads stdin)"),
+        ("disable", "disable an account"),
+        ("enable", "re-enable an account"),
+    ):
+        parser_ = user_sub.add_parser(name, help=help_text)
+        parser_.add_argument("username")
+    user_role = user_sub.add_parser("role", help="change a role")
+    user_role.add_argument("username")
+    user_role.add_argument("role", choices=users.ROLE_ORDER)
+
     enrich_parser = sub.add_parser("enrich", help="run the enrichment queue")
     enrich_target = enrich_parser.add_mutually_exclusive_group(required=True)
     enrich_target.add_argument("--all", action="store_true", help="queue every part")
@@ -76,6 +190,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "enrich":
         return _run_enrich(args)
+
+    if args.command == "user":
+        return _run_user(args)
 
     db.migrate()
     conn = db.connect()
