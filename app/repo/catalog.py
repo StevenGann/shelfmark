@@ -266,6 +266,13 @@ def get_job(conn: sqlite3.Connection, job_id: int) -> dict[str, Any] | None:
     return None if row is None else _row_to_job(row)
 
 
+def requeue_stale_running(conn: sqlite3.Connection) -> int:
+    """Return jobs stuck in "running" to the queue; returns how many moved."""
+    cursor = conn.execute("UPDATE fetch_job SET status = 'queued' WHERE status = 'running'")
+    conn.commit()
+    return cursor.rowcount
+
+
 def list_due_jobs(conn: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = conn.execute(
         "SELECT * FROM fetch_job WHERE status = 'queued' AND next_attempt_at <= ? ORDER BY id",

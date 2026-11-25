@@ -487,6 +487,10 @@ def _next_day() -> str:
 
 def run_queue(conn: sqlite3.Connection) -> int:
     """Drain due queued jobs in-process. Returns how many were attempted."""
+    # A job left in "running" belongs to a process that died mid-fetch; nothing
+    # else is holding it, so it goes back in the queue rather than sitting there
+    # invisible forever.
+    catalog.requeue_stale_running(conn)
     processed = 0
     for job in catalog.list_due_jobs(conn):
         processed += 1

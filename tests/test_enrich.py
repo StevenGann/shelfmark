@@ -334,3 +334,23 @@ def test_retries_stop_after_the_cap():
 
     assert final["status"] == "failed"
     assert "gave up after" in final["last_error"]
+
+
+def test_a_job_stuck_running_is_requeued():
+    """A process that died mid-fetch must not hide its job forever."""
+    from app import db
+    from app.repo import catalog
+    from app.repo import parts as repo
+
+    db.migrate()
+    conn = db.connect()
+    part = repo.create_part(conn, mpn="STUCK-1", manufacturer="Nobody")
+    catalog.queue_job(conn, int(part["id"]))
+    job_id = int(catalog.latest_job(conn, int(part["id"]))["id"])
+    catalog.mark_running(conn, job_id)
+
+    assert catalog.requeue_stale_running(conn) == 1
+    job = catalog.latest_job(conn, int(part["id"]))
+    conn.close()
+
+    assert job["status"] == "queued"
