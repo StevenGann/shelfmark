@@ -165,3 +165,43 @@ def test_bom_ingest_fills_a_missing_value_and_never_overwrites_one(client):
     assert kept["value"] == "10k 1%"
     assert filled["value"] == "10k"
     assert filled["value_norm"] == "10k"
+
+
+def test_the_revision_page_names_a_substitute_even_with_no_stock(user_client):
+    """A link that cannot help yet must still be visible, or it looks missing.
+
+    Built through the HTML routes, because ``/api`` takes API keys and this test
+    is about the page a logged-in engineer sees.
+    """
+    from app import db as db_module
+    from app.repo import boms as boms_repo
+
+    called_for = _part("LM358N")
+    alternative = _part("LM358DR2G", "onsemi")
+    conn = db_module.connect()
+    try:
+        subs_repo.add_link(
+            conn, int(called_for["id"]), int(alternative["id"]), "equivalent", None, "t"
+        )
+    finally:
+        conn.close()
+
+    conn = db_module.connect()
+    try:
+        project = boms_repo.create_project(conn, name="rev-page")
+        revision = boms_repo.import_bom(
+            conn,
+            project_id=int(project["id"]),
+            label="rev A",
+            source_filename="BOM.csv",
+            data=b"Reference,Qty,Value,Footprint,MPN,Manufacturer\nU1,1,opamp,SOIC-8,LM358N,TI\n",
+            imported_by="t",
+        )
+    finally:
+        conn.close()
+
+    page = user_client.get(f"/revisions/{revision['revision_id']}")
+    assert page.status_code == 200
+    assert "short 1" in page.text
+    assert alternative["ipn"] in page.text
+    assert "none on hand" in page.text
