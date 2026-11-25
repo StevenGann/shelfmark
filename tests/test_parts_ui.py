@@ -1,5 +1,5 @@
-def test_create_through_form_and_follow_redirect(client):
-    r = client.post(
+def test_create_through_form_and_follow_redirect(user_client):
+    r = user_client.post(
         "/parts/new",
         data={"mpn": "LM358N", "manufacturer": "TI", "design_status": "active"},
         follow_redirects=True,
@@ -7,24 +7,24 @@ def test_create_through_form_and_follow_redirect(client):
     assert r.status_code == 200
     assert "SK-00001" in r.text
 
-    detail = client.get("/parts/SK-00001")
+    detail = user_client.get("/parts/SK-00001")
     assert detail.status_code == 200
     assert "LM358N" in detail.text
 
-    listing = client.get("/")
+    listing = user_client.get("/")
     assert listing.status_code == 200
     assert "SK-00001" in listing.text
 
 
-def test_form_rerenders_with_error_on_duplicate(client):
-    first = client.post(
+def test_form_rerenders_with_error_on_duplicate(user_client):
+    first = user_client.post(
         "/parts/new",
         data={"mpn": "LM358N", "manufacturer": "TI"},
         follow_redirects=True,
     )
     assert first.status_code == 200
 
-    r = client.post(
+    r = user_client.post(
         "/parts/new",
         data={"mpn": "lm358n", "manufacturer": "TI"},
     )
@@ -34,8 +34,8 @@ def test_form_rerenders_with_error_on_duplicate(client):
     assert 'value="lm358n"' in r.text
 
 
-def test_form_rerenders_on_validation_error(client):
-    r = client.post("/parts/new", data={"mpn": "", "manufacturer": "TI"})
+def test_form_rerenders_on_validation_error(user_client):
+    r = user_client.post("/parts/new", data={"mpn": "", "manufacturer": "TI"})
     assert r.status_code == 200
     assert "MPN is required" in r.text
     assert 'value="TI"' in r.text

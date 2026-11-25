@@ -56,3 +56,19 @@ def test_auth_none_allows_without_key(anon_client):
         assert r.status_code == 200
     finally:
         settings.auth = original
+
+
+def test_api_accepts_header_key_and_refuses_session_cookie(anon_client, make_key, make_user):
+    key = make_key("viewer")
+    assert anon_client.get("/api/parts", headers={"X-API-Key": key}).status_code == 200
+
+    user = make_user("viewer")
+    r = anon_client.post(
+        "/login",
+        data={"username": user["username"], "password": user["password"], "next": "/"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    anon_client.cookies.set("smk_session", r.cookies["smk_session"])
+
+    assert anon_client.get("/api/parts").status_code == 401

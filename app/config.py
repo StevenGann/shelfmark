@@ -16,9 +16,6 @@ class Settings(BaseSettings):
     listen_port: int = 8080
     log_level: str = "info"
     ipn_prefix: str = "SK"
-    # Secret used to sign the smk_session cookie. The container is expected to
-    # provide a real value in production; this default keeps the dev loop working.
-    secret_key: str = "dev-insecure-secret-key"
     # "none" disables auth enforcement; refused when env is "production".
     auth: str = "on"
     env: str = "development"

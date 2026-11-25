@@ -43,9 +43,9 @@ async def rate_limit(request: Request, call_next) -> Response:
         if raw:
             bucket, cap = "k:" + auth.hash_key(raw), limit
         else:
-            key_id = auth.key_id_from_cookie(request)
-            if key_id is not None:
-                bucket, cap = f"k:{key_id}", limit
+            token = request.cookies.get("smk_session")
+            if token:
+                bucket, cap = "s:" + auth.hash_key(token), limit
             else:
                 ip = request.client.host if request.client else "unknown"
                 bucket, cap = f"ip:{ip}", max(1, limit // 10)

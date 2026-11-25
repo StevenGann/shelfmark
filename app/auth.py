@@ -1,9 +1,10 @@
-"""API-key authentication: the one mechanism for the API, the UI and the CLI.
+"""API-key authentication for machines.
 
 Keys are ``smk_`` + 40 hex chars. Only a SHA-256 hash is stored; the plaintext
-is shown once at creation and then lives only with its owner. The UI carries the
-same key through a signed cookie that stores the key id, never the key, so a
-revocation takes effect on the next request.
+is shown once at creation and then lives only with its owner. Keys are presented
+as ``Authorization: Bearer …`` or ``X-API-Key: …`` and gate ``/api/*`` only.
+People use username and password sessions (``app.users``, ``app.sessions``);
+this module has no cookie path.
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import quote
 
 from fastapi import HTTPException, Request
 
@@ -47,28 +47,6 @@ def hash_key(key: str) -> str:
     return hashlib.sha256(key.encode()).hexdigest()
 
 
-def _sign(value: str) -> str:
-    digest = hmac.new(settings.secret_key.encode(), value.encode(), hashlib.sha256).hexdigest()
-    return f"{value}.{digest}"
-
-
-def sign_key_id(key_id: int) -> str:
-    return _sign(str(key_id))
-
-
-def unsign_key_id(token: str) -> int | None:
-    value, _, digest = token.partition(".")
-    if not value or not digest:
-        return None
-    expected = hmac.new(settings.secret_key.encode(), value.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(expected, digest):
-        return None
-    try:
-        return int(value)
-    except ValueError:
-        return None
-
-
 def _row_to_key(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -90,11 +68,6 @@ def _lookup_by_hash(conn: sqlite3.Connection, raw: str) -> dict[str, Any] | None
     return _row_to_key(row)
 
 
-def _lookup_by_id(conn: sqlite3.Connection, key_id: int) -> dict[str, Any] | None:
-    row = conn.execute("SELECT * FROM api_key WHERE id = ?", (key_id,)).fetchone()
-    return None if row is None else _row_to_key(row)
-
-
 def verify_key(conn: sqlite3.Connection, raw: str) -> dict[str, Any] | None:
     """Return the live key row for a presented plaintext key, or None."""
     key = _lookup_by_hash(conn, raw)
@@ -111,21 +84,11 @@ def extract_header_key(request: Request) -> str | None:
     return key.strip() if key else None
 
 
-def key_id_from_cookie(request: Request) -> int | None:
-    token = request.cookies.get("smk_session")
-    if not token:
-        return None
-    return unsign_key_id(token)
-
-
 def resolve_key(conn: sqlite3.Connection, request: Request) -> dict[str, Any] | None:
     raw = extract_header_key(request)
-    if raw is not None:
-        return _lookup_by_hash(conn, raw)
-    key_id = key_id_from_cookie(request)
-    if key_id is not None:
-        return _lookup_by_id(conn, key_id)
-    return None
+    if raw is None:
+        return None
+    return _lookup_by_hash(conn, raw)
 
 
 def touch_last_used(conn: sqlite3.Connection, key_id: int) -> None:
@@ -166,34 +129,6 @@ def require(role: str = "viewer") -> Callable[..., dict[str, Any]]:
         if ROLE_ORDER[key["role"]] < ROLE_ORDER[role]:
             raise HTTPException(status_code=403, detail="insufficient role")
         touch_last_used(conn, int(key["id"]))
-        return key
-
-    return dependency
-
-
-def require_ui(role: str = "viewer") -> Callable[..., dict[str, Any]]:
-    """Like :func:`require`, but an unauthenticated browser is redirected to /login."""
-
-    if role not in ROLE_ORDER:
-        raise ValueError(f"unknown role: {role}")
-
-    def dependency(request: Request, conn: Conn) -> dict[str, Any]:
-        if settings.auth == "none":
-            request.state.key = {}
-            return {}
-        key = resolve_key(conn, request)
-        if key is None or key["revoked_at"] is not None:
-            target = request.url.path
-            if request.url.query:
-                target += "?" + request.url.query
-            raise HTTPException(
-                status_code=302,
-                headers={"Location": "/login?next=" + quote(target, safe="")},
-            )
-        if ROLE_ORDER[key["role"]] < ROLE_ORDER[role]:
-            raise HTTPException(status_code=403, detail="insufficient role")
-        touch_last_used(conn, int(key["id"]))
-        request.state.key = key
         return key
 
     return dependency
