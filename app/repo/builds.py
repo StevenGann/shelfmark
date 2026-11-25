@@ -541,20 +541,22 @@ def job_xml_text(conn: sqlite3.Connection, build_id: int) -> str:
     name = board_file_name(str(project["name"]), str(revision["label"]))
     root = ET.Element("openpnp-job")
     locations_el = ET.SubElement(root, "board-locations")
-    for _ in range(int(row["boards"])):
-        board_location = ET.SubElement(
-            locations_el, "board-location", {"side": "Top", "board-file": name}
-        )
-        ET.SubElement(
-            board_location,
-            "location",
-            {
-                "units": "Millimeters",
-                "x": "0.0",
-                "y": "0.0",
-                "z": "0.0",
-                "rotation": "0.0",
-            },
-        )
+    # Exactly one board location, whatever the build count. Repeating it per
+    # board would stack every copy at 0,0 and place them on top of each other;
+    # where the other nine boards sit is the operator's panel, not Shelfmark's.
+    board_location = ET.SubElement(
+        locations_el, "board-location", {"side": "Top", "board-file": name}
+    )
+    ET.SubElement(
+        board_location,
+        "location",
+        {
+            "units": "Millimeters",
+            "x": "0.0",
+            "y": "0.0",
+            "z": "0.0",
+            "rotation": "0.0",
+        },
+    )
     ET.indent(root)
     return ET.tostring(root, encoding="unicode")

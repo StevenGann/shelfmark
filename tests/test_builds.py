@@ -569,7 +569,7 @@ def test_viewer_can_download_but_cannot_commit(client, anon_client, make_key):
     assert write.status_code == 403
 
 
-def test_multi_board_job_emits_one_location_per_board(client):
+def test_a_multi_board_job_names_the_board_once(client):
     client.post("/api/parts", json={"mpn": "LM358N", "manufacturer": "TI"})
     project = _project(client)
     imported = _import(
@@ -586,4 +586,7 @@ def test_multi_board_job_emits_one_location_per_board(client):
     root = ET.fromstring(response.text)
     locations = root.find("board-locations")
     assert locations is not None
-    assert len(list(locations)) == 4
+    # One location, not four: four copies at 0,0 would be placed on top of each
+    # other. The build count lives in Shelfmark; the panel lives in OpenPnP.
+    assert len(list(locations)) == 1
+    assert list(locations)[0].get("board-file") == "sk-sensor-rev-A.board.xml"
