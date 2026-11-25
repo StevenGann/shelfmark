@@ -309,3 +309,34 @@ def test_a_label_with_no_readable_2d_code_still_prefills_from_the_linear_codes()
     assert parsed["mpn"] == "TMP118MBIYMSR"
     assert parsed["quantity"] == 20
     assert parsed["country"] == "CN"
+
+
+def test_a_mouser_bag_stores_its_sku_under_mouser():
+    """The distributor link has to name the right supplier, or the URL is wrong."""
+    from app import db
+
+    conn = db.connect()
+    try:
+        parsed = labels.parse_label(MOUSER_KOA, ["660-RN73H1ETP1001F25"])
+        assert parsed["supplier"] == "Mouser"
+        part = labels.create_part_from_label(conn, parsed, "KOA Speer")
+        row = conn.execute(
+            "SELECT d.name AS name FROM part_link pl "
+            "LEFT JOIN distributor d ON d.id = pl.distributor_id WHERE pl.part_id = ?",
+            (int(part["id"]),),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row["name"] == "Mouser"
+
+
+def test_a_digikey_label_is_attributed_to_digikey():
+    payload = (
+        "[)>\x1e06\x1dP296-OPA211AIDRGRCT-ND\x1d1P\x1dKIC OPAMP\x1dQ25\x1d1T5397196ML5"
+        "\x1d9D2524+5\x1d4LUS\x1e\x04"
+    )
+    parsed = labels.parse_label(payload)
+
+    assert parsed["supplier"] == "DigiKey"
+    assert parsed["distributor_pn"] == "296-OPA211AIDRGRCT-ND"

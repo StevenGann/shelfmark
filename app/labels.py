@@ -246,8 +246,11 @@ def _parse_linear(payloads: list[str], extras: list[str], result: dict) -> dict:
                 result["distributor_pn"] = supplier_pn
             if result["mpn"] is None:
                 result["mpn"] = derived_mpn
+            if result["supplier"] is None:
+                result["supplier"] = "Mouser"
         if result["distributor_pn"] is None and _looks_like_digikey_pn(payload):
             result["distributor_pn"] = payload
+            result["supplier"] = "DigiKey"
     numbers = [
         int(p)
         for p in list(payloads) + list(extras)
@@ -281,6 +284,7 @@ def parse_label(raw: str, extras: list[str] | None = None) -> dict:
         "date_code": None,
         "country": None,
         "purchase_order": None,
+        "supplier": None,
         "fields": {},
         "raw": raw,
     }
@@ -289,10 +293,16 @@ def parse_label(raw: str, extras: list[str] | None = None) -> dict:
         return _parse_linear([stripped] if stripped else [], extras or [], result)
 
     fields = _split_mh10(stripped)
-    if "30P" in fields:
+    # DigiKey never sends ``1V``; Mouser always does. ``06`` is empty on both.
+    result["supplier"] = "Mouser" if fields.get("1V") else "DigiKey"
+    if fields.get("30P"):
         result["distributor_pn"] = fields["30P"]
-    elif "06" in fields and fields["06"]:
+    elif fields.get("06"):
         result["distributor_pn"] = fields["06"].removeprefix("P")
+    elif fields.get("P") and "," not in fields["P"] and len(fields["P"]) >= 5:
+        # DigiKey puts its part number in ``P``. On Mouser labels ``P`` is the
+        # position list ("6-8,11,13-4"), which is never a part number.
+        result["distributor_pn"] = fields["P"].removeprefix("P")
     if "1P" in fields:
         result["mpn"] = fields["1P"]
     if "1V" in fields:
@@ -360,7 +370,7 @@ def _suggested_location(conn: sqlite3.Connection, part_id: int) -> str | None:
 def resolve_label(conn: sqlite3.Connection, parsed: dict) -> dict:
     """Answer "what is this, and where does it live".
 
-    Resolution is by DigiKey part number first (``part_link.sku`` on the DigiKey
+    Resolution is by supplier part number first (``part_link.sku`` on any
     distributor), then by MPN (exactly one part or none), then unknown.
     """
     distributor_pn = parsed.get("distributor_pn")
