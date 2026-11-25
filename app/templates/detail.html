@@ -51,7 +51,7 @@
   <a class="link" href="/assets/{{ datasheet.rel_path }}">Datasheet</a>
   {% if datasheet_source %}<a class="link subtle" href="{{ datasheet_source.url }}" rel="noopener">source</a>{% endif %}
   {% elif datasheet and datasheet.status == 'failed' %}
-  <span class="link muted">Datasheet (failed)</span>
+  {% if datasheet_source %}<a class="link subtle" href="{{ datasheet_source.url }}" rel="noopener" title="Automatic download failed: {{ datasheet.error }}">Datasheet ↗ (source)</a>{% else %}<span class="link muted">Datasheet</span>{% endif %}
   {% else %}
   <span class="link muted">Datasheet</span>
   {% endif %}
