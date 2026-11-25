@@ -7,15 +7,18 @@ import getpass
 import json
 import sys
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from . import auth, db, enrich, labels, pricing, sessions, users
 from .bom import BomError
 from .repo import boms as boms_repo
+from .repo import builds as builds_repo
 from .repo import catalog
 from .repo import parts as repo
 from .repo import stock as stock_repo
 from .repo import substitutes as subs_repo
 from .repo.boms import DuplicateRevisionError
+from .repo.builds import BuildNotPlanning, BuildShortage, PositionsRequired
 from .repo.parts import DuplicatePartError
 from .repo.substitutes import FIT_LEVELS, DuplicateSubstituteError
 
@@ -384,6 +387,69 @@ def _run_subs(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _run_build(args: argparse.Namespace) -> int:
+    db.migrate()
+    conn = db.connect()
+    try:
+        if args.build_command == "list":
+            for build in builds_repo.list_builds(conn):
+                print(
+                    f"{build['id']}\t{build['project_name']}\t{build['revision_label']}\t"
+                    f"{build['boards']} boards\t{build['status']}\t{build['created_at']}"
+                )
+            return 0
+
+        if args.build_command == "plan":
+            try:
+                build = builds_repo.create_build(
+                    conn,
+                    revision_id=args.revision_id,
+                    boards=args.boards,
+                    note=args.note,
+                    created_by="cli",
+                )
+            except ValueError as error:
+                print(str(error), file=sys.stderr)
+                return 1
+            print(f"planned build {build['id']} ({build['boards']} boards)")
+            for line in build["lines"]:
+                ipn = line["ipn"] or "(unmatched)"
+                print(
+                    f"  {ipn}\t{line['mpn']}\trequired {line['required']}\t"
+                    f"on hand {line['on_hand']}\tshort {line['short']}"
+                )
+            return 0
+
+        if args.build_command == "commit":
+            try:
+                build = builds_repo.commit_build(conn, args.build_id, None, "cli")
+            except BuildShortage as error:
+                print(f"cannot commit: {error.message}", file=sys.stderr)
+                return 1
+            except BuildNotPlanning as error:
+                print(str(error), file=sys.stderr)
+                return 1
+            print(f"committed build {build['id']} ({build['boards']} boards)")
+            return 0
+
+        if args.build_command == "export":
+            out = Path(args.out)
+            out.mkdir(parents=True, exist_ok=True)
+            (out / "picklist.csv").write_text(builds_repo.picklist_text(conn, args.build_id))
+            try:
+                board, _skipped = builds_repo.board_xml_text(conn, args.build_id)
+            except PositionsRequired:
+                print("no positions; board.xml not written", file=sys.stderr)
+            else:
+                (out / "board.xml").write_text(board)
+            (out / "job.xml").write_text(builds_repo.job_xml_text(conn, args.build_id))
+            print(f"exported build {args.build_id} to {out}")
+            return 0
+    finally:
+        conn.close()
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="shelfmark")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -469,6 +535,19 @@ def main(argv: list[str] | None = None) -> int:
     subs_remove.add_argument("ipn")
     subs_remove.add_argument("substitute")
 
+    build = sub.add_parser("build", help="plan, commit, list and export builds")
+    build_sub = build.add_subparsers(dest="build_command", required=True)
+    build_plan = build_sub.add_parser("plan", help="plan a build")
+    build_plan.add_argument("revision_id", type=int)
+    build_plan.add_argument("--boards", type=int, required=True)
+    build_plan.add_argument("--note")
+    build_commit = build_sub.add_parser("commit", help="commit a build")
+    build_commit.add_argument("build_id", type=int)
+    build_sub.add_parser("list", help="list builds")
+    build_export = build_sub.add_parser("export", help="export a build's files")
+    build_export.add_argument("build_id", type=int)
+    build_export.add_argument("--out", required=True)
+
     args = parser.parse_args(argv)
 
     if args.command == "enrich":
@@ -485,6 +564,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "subs":
         return _run_subs(args)
+
+    if args.command == "build":
+        return _run_build(args)
 
     if args.command == "user":
         return _run_user(args)

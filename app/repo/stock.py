@@ -59,7 +59,7 @@ def get_stock(conn: sqlite3.Connection, part_id: int) -> list[dict]:
     return [_row_to_item(r) for r in rows]
 
 
-def record_move(
+def apply_move(
     conn: sqlite3.Connection,
     part_id: int,
     location: str,
@@ -68,11 +68,15 @@ def record_move(
     note: str | None,
     actor: str,
 ) -> dict:
-    """Apply one stock movement and return the updated stock item.
+    """Apply one stock movement inside an already-open transaction.
 
     ``quantity`` is a positive count to add for ``receive``, a positive count to
     remove for ``consume``/``scrap``/``build`` (the sign comes from ``kind``),
     and the counted total for ``adjust``.
+
+    The caller owns the transaction: this is the core of :func:`record_move`
+    without the ``BEGIN IMMEDIATE``/``commit``, so a build can consume many
+    lines atomically and roll back the whole lot on a shortfall.
     """
     if kind not in KINDS:
         raise ValueError(f"invalid kind: {kind}")
@@ -89,55 +93,73 @@ def record_move(
     norm = location_norm(location)
     now = _utc_now()
 
+    row = conn.execute(
+        "SELECT * FROM stock_item WHERE part_id = ? AND location_norm = ?",
+        (part_id, norm),
+    ).fetchone()
+    if row is None:
+        cur = conn.execute(
+            "INSERT INTO stock_item "
+            "(part_id, location, location_norm, quantity, created_at, updated_at) "
+            "VALUES (?, ?, ?, 0, ?, ?)",
+            (part_id, location, norm, now, now),
+        )
+        assert cur.lastrowid is not None
+        item_id = int(cur.lastrowid)
+        current = 0
+    else:
+        item_id = int(row["id"])
+        current = int(row["quantity"])
+
+    if kind == "receive":
+        delta = quantity
+    elif kind in SUBTRACT_KINDS:
+        delta = -quantity
+    else:  # adjust: quantity is the counted total, the delta is recorded
+        delta = quantity - current
+
+    resulting = current + delta
+    if resulting < 0:
+        raise StockError(
+            f"only {current} in stock at {location}; {kind} of {quantity} would leave {resulting}"
+        )
+
+    conn.execute(
+        "INSERT INTO stock_move "
+        "(stock_item_id, kind, delta, resulting_quantity, note, actor, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (item_id, kind, delta, resulting, note, actor, now),
+    )
+    conn.execute(
+        "UPDATE stock_item SET quantity = ?, updated_at = ? WHERE id = ?",
+        (resulting, now, item_id),
+    )
+    return _item(conn, item_id)
+
+
+def record_move(
+    conn: sqlite3.Connection,
+    part_id: int,
+    location: str,
+    kind: str,
+    quantity: int,
+    note: str | None,
+    actor: str,
+) -> dict:
+    """Apply one stock movement and return the updated stock item.
+
+    ``quantity`` is a positive count to add for ``receive``, a positive count to
+    remove for ``consume``/``scrap``/``build`` (the sign comes from ``kind``),
+    and the counted total for ``adjust``.
+    """
     conn.execute("BEGIN IMMEDIATE")
     try:
-        row = conn.execute(
-            "SELECT * FROM stock_item WHERE part_id = ? AND location_norm = ?",
-            (part_id, norm),
-        ).fetchone()
-        if row is None:
-            cur = conn.execute(
-                "INSERT INTO stock_item "
-                "(part_id, location, location_norm, quantity, created_at, updated_at) "
-                "VALUES (?, ?, ?, 0, ?, ?)",
-                (part_id, location, norm, now, now),
-            )
-            assert cur.lastrowid is not None
-            item_id = int(cur.lastrowid)
-            current = 0
-        else:
-            item_id = int(row["id"])
-            current = int(row["quantity"])
-
-        if kind == "receive":
-            delta = quantity
-        elif kind in SUBTRACT_KINDS:
-            delta = -quantity
-        else:  # adjust: quantity is the counted total, the delta is recorded
-            delta = quantity - current
-
-        resulting = current + delta
-        if resulting < 0:
-            raise StockError(
-                f"only {current} in stock at {location}; "
-                f"{kind} of {quantity} would leave {resulting}"
-            )
-
-        conn.execute(
-            "INSERT INTO stock_move "
-            "(stock_item_id, kind, delta, resulting_quantity, note, actor, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (item_id, kind, delta, resulting, note, actor, now),
-        )
-        conn.execute(
-            "UPDATE stock_item SET quantity = ?, updated_at = ? WHERE id = ?",
-            (resulting, now, item_id),
-        )
+        item = apply_move(conn, part_id, location, kind, quantity, note, actor)
         conn.commit()
     except BaseException:
         conn.rollback()
         raise
-    return _item(conn, item_id)
+    return item
 
 
 def move_between(

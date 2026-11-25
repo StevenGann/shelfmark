@@ -5,10 +5,50 @@
 <p class="muted">{{ revision.line_count }} lines · {{ revision.imported_at }} · {{ revision.imported_by }}</p>
 
 {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+{% if positions_error %}<div class="error" role="alert">{{ positions_error }}</div>{% endif %}
 
 <form method="post" action="/revisions/{{ revision.id }}/resolve-unmatched" class="inline-form">
   <button type="submit" class="primary">Create parts for unmatched</button>
 </form>
+
+<div class="import-form">
+  <h2>Plan a build</h2>
+  <form method="post" action="/revisions/{{ revision.id }}/builds" class="inline-form">
+    <label>Boards
+      <input type="number" name="boards" value="1" min="1" required>
+    </label>
+    <label>Note
+      <input name="note" placeholder="Optional">
+    </label>
+    <button type="submit" class="primary">Plan a build</button>
+  </form>
+</div>
+
+<div class="import-form">
+  <h2>Positions</h2>
+  <p class="muted">
+    {{ placements|length }} placement{{ "s" if placements|length != 1 else "" }} uploaded —
+    needed for the OpenPnP board file.
+  </p>
+  <form method="post" action="/revisions/{{ revision.id }}/positions" enctype="multipart/form-data">
+    <label>KiCad position file (.pos)
+      <input type="file" name="file" accept=".pos,.csv,text/csv" required>
+    </label>
+    <button type="submit" class="primary">Upload positions</button>
+  </form>
+</div>
+
+{% if builds %}
+<h2>Builds</h2>
+<ul class="revision-list">
+  {% for b in builds %}
+  <li>
+    <a href="/builds/{{ b.id }}">#{{ b.id }} — {{ b.boards }} board{{ "s" if b.boards != 1 else "" }}</a>
+    <span class="muted">· {{ b.status }} · {{ b.created_at }}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
 
 <table class="parts-table">
   <thead>

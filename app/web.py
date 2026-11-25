@@ -11,7 +11,7 @@ from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from . import assets, auth, enrich, labels, pricing, sessions, users
@@ -19,15 +19,23 @@ from .bom import BomError
 from .config import settings
 from .deps import Conn
 from .packages import normalise_package
+from .positions import PositionError, parse_positions
 from .ratelimit import allow
 from .ratelimit import reset as reset_rate
 from .repo import boms as boms_repo
+from .repo import builds as builds_repo
 from .repo import catalog
 from .repo import offers as offers_repo
 from .repo import parts as repo
 from .repo import stock as stock_repo
 from .repo import substitutes as subs_repo
 from .repo.boms import DuplicateProjectError, DuplicateRevisionError
+from .repo.builds import (
+    BuildNotFound,
+    BuildNotPlanning,
+    BuildShortage,
+    PositionsRequired,
+)
 from .repo.parts import DESIGN_STATUSES, DuplicatePartError
 from .repo.stock import StockError
 from .repo.substitutes import FIT_LEVELS, DuplicateSubstituteError
@@ -1206,11 +1214,15 @@ async def project_import(project_id: int, request: Request, conn: Conn):
     return _render(request, "project.html", _project_context(conn, project_id, pending=pending))
 
 
-@router.get("/revisions/{revision_id}", dependencies=[Depends(_require_session())])
-def revision_page(revision_id: int, request: Request, conn: Conn):
+def _revision_context(
+    conn: sqlite3.Connection,
+    revision_id: int,
+    *,
+    error: str | None = None,
+    positions_error: str | None = None,
+) -> dict[str, Any]:
     revision = boms_repo.get_revision(conn, revision_id)
-    if revision is None:
-        raise HTTPException(status_code=404, detail="not found")
+    assert revision is not None
     project = boms_repo.get_project(conn, revision["project_id"])
     lines = boms_repo.get_lines(conn, revision_id)
     for line in lines:
@@ -1219,16 +1231,24 @@ def revision_page(revision_id: int, request: Request, conn: Conn):
             if line["part_id"] is not None
             else None
         )
-    return _render(
-        request,
-        "revision.html",
-        {
-            "revision": revision,
-            "project": project,
-            "lines": lines,
-            "error": None,
-        },
-    )
+    placements = builds_repo.get_placements(conn, revision_id)
+    return {
+        "revision": revision,
+        "project": project,
+        "lines": lines,
+        "placements": placements,
+        "has_positions": bool(placements),
+        "error": error,
+        "positions_error": positions_error,
+        "builds": builds_repo.list_revision_builds(conn, revision_id),
+    }
+
+
+@router.get("/revisions/{revision_id}", dependencies=[Depends(_require_session())])
+def revision_page(revision_id: int, request: Request, conn: Conn):
+    if boms_repo.get_revision(conn, revision_id) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return _render(request, "revision.html", _revision_context(conn, revision_id))
 
 
 @router.post("/bom-lines/{line_id}/resolve", dependencies=[Depends(_require_session("engineer"))])
@@ -1267,6 +1287,169 @@ def revision_resolve_unmatched(revision_id: int, conn: Conn):
         raise HTTPException(status_code=404, detail="not found")
     boms_repo.resolve_unmatched(conn, revision_id)
     return RedirectResponse(f"/revisions/{revision_id}", status_code=303)
+
+
+def _build_context(
+    conn: sqlite3.Connection,
+    build_id: int,
+    *,
+    error: str | None = None,
+) -> dict[str, Any]:
+    build = builds_repo.get_build(conn, build_id)
+    assert build is not None
+    revision = boms_repo.get_revision(conn, int(build["revision_id"]))
+    assert revision is not None
+    project = boms_repo.get_project(conn, int(revision["project_id"]))
+    placements = builds_repo.get_placements(conn, int(revision["id"]))
+    return {
+        "build": build,
+        "revision": revision,
+        "project": project,
+        "has_positions": bool(placements),
+        "positions_count": len(placements),
+        "multi_board": int(build["boards"]) > 1,
+        "error": error,
+    }
+
+
+def _build_download_response(content: str, media_type: str, filename: str, extra=None) -> Response:
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if extra:
+        headers.update(extra)
+    return Response(content=content, media_type=media_type, headers=headers)
+
+
+@router.get("/builds", dependencies=[Depends(_require_session())])
+def builds_page(request: Request, conn: Conn):
+    return _render(request, "builds.html", {"builds": builds_repo.list_builds(conn)})
+
+
+@router.get("/builds/{build_id}", dependencies=[Depends(_require_session())])
+def build_page(build_id: int, request: Request, conn: Conn):
+    if builds_repo.get_build(conn, build_id) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    return _render(request, "build.html", _build_context(conn, build_id))
+
+
+@router.post(
+    "/revisions/{revision_id}/builds", dependencies=[Depends(_require_session("engineer"))]
+)
+async def revision_plan_build(revision_id: int, request: Request, conn: Conn):
+    if boms_repo.get_revision(conn, revision_id) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    values = _form_values(await request.form())
+    raw_boards = (values.get("boards") or "").strip()
+    note = (values.get("note") or "").strip() or None
+    try:
+        boards = int(raw_boards)
+    except ValueError:
+        boards = 0
+    if boards < 1:
+        context = _revision_context(
+            conn, revision_id, error="Boards must be a whole number of 1 or more."
+        )
+        return _render(request, "revision.html", context, status_code=400)
+    try:
+        build = builds_repo.create_build(
+            conn,
+            revision_id=revision_id,
+            boards=boards,
+            note=note,
+            created_by=_actor_from_session(request),
+        )
+    except ValueError as exc:
+        context = _revision_context(conn, revision_id, error=str(exc))
+        return _render(request, "revision.html", context, status_code=400)
+    return RedirectResponse(f"/builds/{build['id']}", status_code=303)
+
+
+@router.post(
+    "/revisions/{revision_id}/positions", dependencies=[Depends(_require_session("engineer"))]
+)
+async def revision_upload_positions(revision_id: int, request: Request, conn: Conn):
+    revision = boms_repo.get_revision(conn, revision_id)
+    if revision is None:
+        raise HTTPException(status_code=404, detail="not found")
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or not hasattr(upload, "read"):
+        context = _revision_context(
+            conn, revision_id, positions_error="Choose a position file first."
+        )
+        return _render(request, "revision.html", context, status_code=400)
+    data = await upload.read()
+    try:
+        placements = parse_positions(data)
+    except PositionError as exc:
+        context = _revision_context(conn, revision_id, positions_error=str(exc))
+        return _render(request, "revision.html", context, status_code=422)
+    builds_repo.replace_placements(conn, revision_id, placements)
+    return RedirectResponse(f"/revisions/{revision_id}", status_code=303)
+
+
+@router.post("/builds/{build_id}/commit", dependencies=[Depends(_require_session("engineer"))])
+async def build_commit(build_id: int, request: Request, conn: Conn):
+    if builds_repo.get_build(conn, build_id) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    values = _form_values(await request.form())
+    locations: dict[str, str] = {}
+    for name, value in values.items():
+        if name.startswith("location_") and value.strip():
+            locations[name[len("location_") :]] = value.strip()
+    try:
+        builds_repo.commit_build(conn, build_id, locations or None, _actor_from_session(request))
+    except (BuildNotFound, BuildNotPlanning, BuildShortage) as exc:
+        return _render(
+            request, "build.html", _build_context(conn, build_id, error=str(exc)), status_code=409
+        )
+    return RedirectResponse(f"/builds/{build_id}", status_code=303)
+
+
+@router.post("/builds/{build_id}/abandon", dependencies=[Depends(_require_session("engineer"))])
+def build_abandon(build_id: int, request: Request, conn: Conn):
+    if builds_repo.get_build(conn, build_id) is None:
+        raise HTTPException(status_code=404, detail="not found")
+    try:
+        builds_repo.abandon_build(conn, build_id)
+    except BuildNotPlanning as exc:
+        return _render(
+            request, "build.html", _build_context(conn, build_id, error=str(exc)), status_code=409
+        )
+    return RedirectResponse(f"/builds/{build_id}", status_code=303)
+
+
+@router.get("/builds/{build_id}/picklist.csv", dependencies=[Depends(_require_session())])
+def build_picklist(build_id: int, conn: Conn):
+    try:
+        content = builds_repo.picklist_text(conn, build_id)
+    except BuildNotFound:
+        raise HTTPException(status_code=404, detail="not found") from None
+    return _build_download_response(content, "text/csv", f"build-{build_id}-picklist.csv")
+
+
+@router.get("/builds/{build_id}/board.xml", dependencies=[Depends(_require_session())])
+def build_board_xml(build_id: int, conn: Conn):
+    try:
+        content, skipped = builds_repo.board_xml_text(conn, build_id)
+    except BuildNotFound:
+        raise HTTPException(status_code=404, detail="not found") from None
+    except PositionsRequired:
+        raise HTTPException(status_code=409, detail="positions_required") from None
+    return _build_download_response(
+        content,
+        "application/xml",
+        f"build-{build_id}-board.xml",
+        {"X-Skipped-Placements": str(skipped)},
+    )
+
+
+@router.get("/builds/{build_id}/job.xml", dependencies=[Depends(_require_session())])
+def build_job_xml(build_id: int, conn: Conn):
+    try:
+        content = builds_repo.job_xml_text(conn, build_id)
+    except BuildNotFound:
+        raise HTTPException(status_code=404, detail="not found") from None
+    return _build_download_response(content, "application/xml", f"build-{build_id}-job.xml")
 
 
 @router.get("/assets/{rel_path:path}", dependencies=[Depends(_require_session())])

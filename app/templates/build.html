@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Build #{{ build.id }} · Shelfmark{% endblock %}
+{% block content %}
+<h1>Build #{{ build.id }} — {{ project.name }} · {{ revision.label }}</h1>
+<p class="muted">
+  {{ build.boards }} board{{ "s" if build.boards != 1 else "" }} ·
+  <span class="status status-{{ build.status }}">{{ build.status }}</span> ·
+  planned by {{ build.created_by }} · {{ build.created_at }}
+  {% if build.committed_at %} · committed {{ build.committed_at }}{% endif %}
+</p>
+{% if build.note %}<p class="muted">{{ build.note }}</p>{% endif %}
+
+{% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+
+{% if multi_board %}
+<p class="notice">placements describe one board; OpenPnP's board count sets the rest.</p>
+{% endif %}
+
+{% if build.status == 'planning' %}
+<form method="post" action="/builds/{{ build.id }}/commit" class="part-form">
+  <button type="submit" class="primary">Commit build</button>
+  <a class="button" href="/builds/{{ build.id }}">Refresh plan</a>
+</form>
+<form method="post" action="/builds/{{ build.id }}/abandon" class="inline-form">
+  <button type="submit">Abandon</button>
+</form>
+{% endif %}
+
+<h2>Lines</h2>
+<table class="parts-table">
+  <thead>
+    <tr><th>Part</th><th>MPN</th><th>Manufacturer</th><th>Package</th><th>Required</th><th>Consumed</th><th>On hand</th><th>Short</th><th>Substitutes</th></tr>
+  </thead>
+  <tbody>
+    {% for line in build.lines %}
+    <tr>
+      <td>
+        <span class="label">Part</span>
+        {% if line.ipn %}<a class="ipn" href="/parts/{{ line.ipn }}">{{ line.ipn }}</a>{% else %}<span class="status status-unmatched">unmatched</span>{% endif %}
+      </td>
+      <td><span class="label">MPN</span><strong>{{ line.mpn }}</strong></td>
+      <td><span class="label">Manufacturer</span>{{ line.manufacturer or "—" }}</td>
+      <td><span class="label">Package</span>{{ line.package or "—" }}</td>
+      <td><span class="label">Required</span>{{ line.required }}</td>
+      <td><span class="label">Consumed</span>{{ line.consumed }}</td>
+      <td><span class="label">On hand</span>{{ line.on_hand }}</td>
+      <td>
+        <span class="label">Short</span>
+        {% if line.short > 0 %}<span class="shortfall">{{ line.short }}</span>{% else %}0{% endif %}
+      </td>
+      <td>
+        <span class="label">Substitutes</span>
+        {% if line.substitutes %}
+          {% for s in line.substitutes %}{{ s.substitute_ipn }} {{ s.fit }}, {{ s.substitute_on_hand }} on hand{% if s.covers %} (covers it){% endif %}{% if not loop.last %}; {% endif %}{% endfor %}
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<h2>Downloads</h2>
+<ul>
+  <li><a href="/builds/{{ build.id }}/picklist.csv">Pick list (.csv)</a></li>
+  <li><a href="/builds/{{ build.id }}/board.xml">OpenPnP board (.xml)</a>{% if not has_positions %} — <span class="muted">positions required</span>{% endif %}</li>
+  <li><a href="/builds/{{ build.id }}/job.xml">OpenPnP job (.xml)</a></li>
+</ul>
+
+<p><a href="/revisions/{{ revision.id }}">Back to revision</a></p>
+{% endblock %}

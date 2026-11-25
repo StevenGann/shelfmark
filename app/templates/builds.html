@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Builds · Shelfmark{% endblock %}
+{% block content %}
+<h1>Builds</h1>
+
+{% if builds %}
+<table class="parts-table">
+  <thead>
+    <tr><th>ID</th><th>Project</th><th>Revision</th><th>Boards</th><th>Status</th><th>Created</th><th>By</th></tr>
+  </thead>
+  <tbody>
+    {% for b in builds %}
+    <tr>
+      <td><a href="/builds/{{ b.id }}">#{{ b.id }}</a></td>
+      <td><span class="label">Project</span>{{ b.project_name }}</td>
+      <td><span class="label">Revision</span>{{ b.revision_label }}</td>
+      <td><span class="label">Boards</span>{{ b.boards }}</td>
+      <td><span class="label">Status</span><span class="status status-{{ b.status }}">{{ b.status }}</span></td>
+      <td><span class="label">Created</span>{{ b.created_at }}</td>
+      <td><span class="label">By</span>{{ b.created_by }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <p>No builds yet.</p>
+  <p>Open a BOM revision and choose <strong>Plan a build</strong> to create the first one.</p>
+</div>
+{% endif %}
+
+<p><a href="/projects">Back to projects</a></p>
+{% endblock %}
