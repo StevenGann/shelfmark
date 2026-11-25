@@ -1,5 +1,7 @@
 """Configuration. Every knob is an environment variable; nothing is read from a file."""
+
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 

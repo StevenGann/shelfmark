@@ -1,4 +1,5 @@
 """Shelfmark HTTP entry point. M0: health only."""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI

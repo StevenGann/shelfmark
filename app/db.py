@@ -3,6 +3,7 @@
 One process owns the database (the container runs with a single worker), so we
 open a connection per request rather than pooling.
 """
+
 from __future__ import annotations
 
 import sqlite3
@@ -59,7 +60,8 @@ def check() -> bool:
         try:
             conn.execute("SELECT 1").fetchone()
             row = conn.execute(
-                "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='schema_migration'"
+                "SELECT count(*) AS n FROM sqlite_master "
+                "WHERE type='table' AND name='schema_migration'"
             ).fetchone()
             return bool(row and row["n"])
         finally:
