@@ -6,8 +6,9 @@ import argparse
 import getpass
 import json
 import sys
+from datetime import UTC, datetime, timedelta
 
-from . import auth, db, enrich, labels, sessions, users
+from . import auth, db, enrich, labels, pricing, sessions, users
 from .bom import BomError
 from .repo import boms as boms_repo
 from .repo import catalog
@@ -257,6 +258,79 @@ def _run_label(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _needs_offer_refresh(conn, part_id: int, stale_days: int) -> bool:
+    """True when a part has no digikey ladder fetched within ``stale_days``."""
+    cutoff = (datetime.now(UTC) - timedelta(days=stale_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    row = conn.execute(
+        "SELECT MAX(fetched_at) AS latest FROM offer WHERE part_id = ? AND source = 'digikey'",
+        (part_id,),
+    ).fetchone()
+    latest = row["latest"]
+    if latest is None:
+        return True
+    return latest < cutoff
+
+
+def _audit_offers(conn) -> int:
+    findings = pricing.audit_inversions(conn)
+    if not findings:
+        print("no inverted price breaks")
+        return 0
+    for finding in findings:
+        b1 = finding["break1"]
+        b2 = finding["break2"]
+        print(
+            f"{finding['ipn']}\t{finding['mpn']}\t{finding['distributor']}\t{finding['sku']}\t"
+            f"{b1['quantity']} @ {pricing.format_money(b1['unit_price_micros'])} -> "
+            f"{b2['quantity']} @ {pricing.format_money(b2['unit_price_micros'])}"
+        )
+    return 0
+
+
+def _refresh_offers(conn, args: argparse.Namespace) -> int:
+    if args.ipn:
+        part = repo.get_part(conn, args.ipn)
+        if part is None:
+            print(f"no such part: {args.ipn}", file=sys.stderr)
+            return 1
+        try:
+            pricing.refresh_part_offers(conn, part)
+        except Exception as error:  # noqa: BLE001 - report the supplier's message
+            print(f"refresh failed for {args.ipn}: {error}", file=sys.stderr)
+            return 1
+        print(f"refreshed {part['ipn']} ({part['mpn']})")
+        return 0
+
+    rows = conn.execute("SELECT id, ipn FROM part ORDER BY ipn").fetchall()
+    refreshed = 0
+    for row in rows:
+        part_id = int(row["id"])
+        if not _needs_offer_refresh(conn, part_id, args.stale_days):
+            continue
+        part = repo.get_part_by_id(conn, part_id)
+        if part is None:
+            continue
+        try:
+            pricing.refresh_part_offers(conn, part)
+            refreshed += 1
+            print(f"refreshed {part['ipn']} ({part['mpn']})")
+        except Exception as error:  # noqa: BLE001 - one bad part must not stop the run
+            print(f"SKIPPED {row['ipn']}: {error}", file=sys.stderr)
+    print(f"refreshed {refreshed} parts")
+    return 0
+
+
+def _run_offers(args: argparse.Namespace) -> int:
+    db.migrate()
+    conn = db.connect()
+    try:
+        if args.offers_command == "audit":
+            return _audit_offers(conn)
+        return _refresh_offers(conn, args)
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="shelfmark")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -318,6 +392,17 @@ def main(argv: list[str] | None = None) -> int:
     label_receive.add_argument("--note")
     label_receive.add_argument("--manufacturer")
 
+    offers = sub.add_parser("offers", help="manage offers and price breaks")
+    offers_sub = offers.add_subparsers(dest="offers_command", required=True)
+    offers_refresh = offers_sub.add_parser("refresh", help="refresh offers from DigiKey")
+    offers_target = offers_refresh.add_mutually_exclusive_group(required=True)
+    offers_target.add_argument("--ipn", metavar="IPN", help="refresh a single part")
+    offers_target.add_argument("--all", action="store_true", help="refresh every stale part")
+    offers_refresh.add_argument(
+        "--stale-days", type=int, default=7, help="skip parts fetched more recently"
+    )
+    offers_sub.add_parser("audit", help="report inverted price ladders")
+
     args = parser.parse_args(argv)
 
     if args.command == "enrich":
@@ -328,6 +413,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "label":
         return _run_label(args)
+
+    if args.command == "offers":
+        return _run_offers(args)
 
     if args.command == "user":
         return _run_user(args)

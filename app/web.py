@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from . import assets, auth, labels, sessions, users
+from . import assets, auth, enrich, labels, pricing, sessions, users
 from .bom import BomError
 from .config import settings
 from .deps import Conn
@@ -23,6 +23,7 @@ from .ratelimit import allow
 from .ratelimit import reset as reset_rate
 from .repo import boms as boms_repo
 from .repo import catalog
+from .repo import offers as offers_repo
 from .repo import parts as repo
 from .repo import stock as stock_repo
 from .repo.boms import DuplicateProjectError, DuplicateRevisionError
@@ -44,12 +45,39 @@ def _format_asset_date(value: str | None) -> str:
         return value
 
 
+def _fetched_note(value: str | None) -> str:
+    """Render the age of the most recent DigiKey offer fetch."""
+    if not value:
+        return "never fetched"
+    try:
+        fetched = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return value
+    days = (datetime.now(UTC) - fetched).days
+    if days <= 0:
+        return "fetched just now"
+    if days == 1:
+        return "fetched 1 day ago"
+    return f"fetched {days} days ago"
+
+
+def _quantity_from(request: Request) -> int:
+    """Parse the ``quantity`` query param into a positive integer, else 1."""
+    raw = request.query_params.get("quantity", "1")
+    try:
+        quantity = int(raw)
+    except ValueError:
+        return 1
+    return quantity if quantity >= 1 else 1
+
+
 router = APIRouter()
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["package"] = normalise_package
 templates.env.filters["assetdate"] = _format_asset_date
+templates.env.filters["money"] = pricing.format_money
 
 PAGE_SIZE = 50
 SESSION_COOKIE = "smk_session"
@@ -474,8 +502,53 @@ def part_detail(ipn: str, request: Request, conn: Conn):
     return _render(
         request,
         "detail.html",
-        _part_detail_context(conn, part),
+        _part_detail_context(conn, part, _quantity_from(request)),
     )
+
+
+@router.post("/parts/{ipn}/offers", dependencies=[Depends(_require_session("engineer"))])
+async def add_offer(ipn: str, request: Request, conn: Conn):
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    form = await request.form()
+    error = _add_manual_offer(conn, part, form, request)
+    if error is not None:
+        context = _part_detail_context(conn, part)
+        context["offer_error"] = error
+        return _render(request, "detail.html", context, status_code=400)
+    return RedirectResponse(f"/parts/{ipn}#prices", status_code=303)
+
+
+@router.post("/parts/{ipn}/offers/refresh", dependencies=[Depends(_require_session("engineer"))])
+def refresh_offers(ipn: str, request: Request, conn: Conn):
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    try:
+        pricing.refresh_part_offers(conn, part)
+    except (
+        enrich.CredentialsError,
+        enrich.BudgetError,
+        enrich.CatalogueMiss,
+        enrich.TransientError,
+    ) as error:
+        context = _part_detail_context(conn, part, _quantity_from(request))
+        context["offer_error"] = str(error)
+        return _render(request, "detail.html", context, status_code=502)
+    return RedirectResponse(f"/parts/{ipn}#prices", status_code=303)
+
+
+@router.post("/offers/{offer_id}/delete", dependencies=[Depends(_require_session("engineer"))])
+def delete_offer(offer_id: int, conn: Conn):
+    offer = offers_repo.get_offer(conn, offer_id)
+    if offer is None:
+        raise HTTPException(status_code=404, detail="not found")
+    part = repo.get_part_by_id(conn, int(offer["part_id"]))
+    offers_repo.delete_offer(conn, offer_id)
+    if part is None:
+        return RedirectResponse("/", status_code=303)
+    return RedirectResponse(f"/parts/{part['ipn']}#prices", status_code=303)
 
 
 @router.post("/parts/{ipn}/enrich", dependencies=[Depends(_require_session("engineer"))])
@@ -487,16 +560,27 @@ def part_enrich(ipn: str, conn: Conn):
     return RedirectResponse(f"/parts/{ipn}", status_code=303)
 
 
-def _part_detail_context(conn: sqlite3.Connection, part: dict[str, Any]) -> dict[str, Any]:
+def _part_detail_context(
+    conn: sqlite3.Connection, part: dict[str, Any], quantity: int = 1
+) -> dict[str, Any]:
     links = catalog.list_part_links(conn, int(part["id"]))
     assets = catalog.list_part_assets(conn, int(part["id"]))
     by_kind = {row["kind"]: row for row in assets}
+    best = pricing.best_offer(conn, int(part["id"]), quantity)
+    offer_rows = pricing.offers_at(conn, int(part["id"]), quantity)
+    for row in offer_rows:
+        row["is_best"] = best is not None and int(row["offer"]["id"]) == int(best["offer"]["id"])
+    fetched_row = conn.execute(
+        "SELECT MAX(fetched_at) AS latest FROM offer WHERE part_id = ? AND source = 'digikey'",
+        (int(part["id"]),),
+    ).fetchone()
     return {
         "part": part,
         "form": {},
         "statuses": DESIGN_STATUSES,
         "error": None,
         "stock_error": None,
+        "offer_error": None,
         "stock_total": stock_repo.total_on_hand(conn, int(part["id"])),
         "stock_items": stock_repo.get_stock(conn, int(part["id"])),
         "locations": stock_repo.list_locations(conn),
@@ -506,6 +590,11 @@ def _part_detail_context(conn: sqlite3.Connection, part: dict[str, Any]) -> dict
         "image": by_kind.get("image"),
         "datasheet": by_kind.get("datasheet"),
         "last_job": catalog.latest_job(conn, int(part["id"])),
+        "offers": offer_rows,
+        "best_offer_id": best["offer"]["id"] if best else None,
+        "quantity": quantity,
+        "distributors": catalog.list_distributors(conn),
+        "fetched_note": _fetched_note(fetched_row["latest"] if fetched_row else None),
     }
 
 
@@ -540,6 +629,73 @@ def _stock_error_context(
 def _actor_from_session(request: Request) -> str:
     user = request.state.user
     return user.get("username") or "api"
+
+
+def _add_manual_offer(
+    conn: sqlite3.Connection, part: dict[str, Any], form: Any, request: Request
+) -> str | None:
+    """Parse the manual-offer form and insert it; return an error message or None."""
+    distributor_name = str(form.get("distributor") or "").strip()
+    sku = str(form.get("sku") or "").strip()
+    packaging = str(form.get("packaging") or "").strip() or None
+    url = str(form.get("url") or "").strip() or None
+    minimum_quantity = 1
+    raw_moq = str(form.get("minimum_quantity") or "").strip()
+    if raw_moq:
+        try:
+            minimum_quantity = int(raw_moq)
+        except ValueError:
+            return "Minimum quantity must be a whole number."
+    if minimum_quantity < 1:
+        return "Minimum quantity must be at least 1."
+    if not sku:
+        return "SKU is required."
+    if not distributor_name:
+        return "Distributor is required."
+    distributor = catalog.get_distributor_by_name_norm(
+        conn, catalog.normalise_name(distributor_name)
+    )
+    if distributor is None:
+        return "Unknown distributor."
+    breaks: list[dict[str, int]] = []
+    for q_raw, p_raw in zip(
+        form.getlist("break_quantity"), form.getlist("break_price"), strict=False
+    ):
+        q = str(q_raw).strip()
+        p = str(p_raw).strip()
+        if not q:
+            continue
+        try:
+            quantity = int(q)
+        except ValueError:
+            return "Break quantities must be whole numbers."
+        if quantity < 1:
+            return "Break quantities must be at least 1."
+        if not p:
+            return "Each break needs a unit price."
+        try:
+            micros = pricing.dollars_to_micros(p)
+        except ValueError:
+            return f"Could not parse unit price: {p}"
+        breaks.append({"quantity": quantity, "unit_price_micros": micros})
+    actor = _actor_from_session(request)
+    try:
+        offers_repo.add_manual_offer(
+            conn,
+            int(part["id"]),
+            distributor_id=int(distributor["id"]),
+            sku=sku,
+            packaging=packaging,
+            url=url,
+            minimum_quantity=minimum_quantity,
+            breaks=breaks,
+            created_by=actor,
+        )
+    except sqlite3.IntegrityError:
+        return "An offer with this distributor and SKU already exists."
+    except ValueError as error:
+        return str(error)
+    return None
 
 
 @router.post("/parts/{ipn}/stock", dependencies=[Depends(_require_session("engineer"))])

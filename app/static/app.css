@@ -680,3 +680,104 @@ a.button.primary {
   margin: 0.5rem 0;
   font-weight: 600;
 }
+
+.prices-panel {
+  margin: 1.5rem 0;
+}
+
+.prices-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0.5rem 0 1rem;
+}
+
+.quantity-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.quantity-form input {
+  width: 6rem;
+}
+
+.offers-table .ladder {
+  font-variant-numeric: tabular-nums;
+}
+
+.offers-table .total {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.offers-table tr.best {
+  background: var(--card);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.best-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  border-radius: 999px;
+  margin-right: 0.4rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.offer-add {
+  margin: 1rem 0;
+}
+
+.offer-add summary {
+  cursor: pointer;
+  color: var(--accent);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.offer-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 24rem;
+  margin-top: 0.5rem;
+}
+
+.offer-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.break-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+.break-rows legend {
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.break-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.break-row input[type="number"] {
+  width: 5rem;
+}
+
+.break-row input[type="text"] {
+  flex: 1;
+}

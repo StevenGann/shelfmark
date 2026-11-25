@@ -79,6 +79,107 @@
   </span>
 </div>
 
+<div class="prices-panel" id="prices">
+  <h2>Prices</h2>
+
+  {% if offer_error %}<div class="error" role="alert">{{ offer_error }}</div>{% endif %}
+
+  <div class="prices-toolbar">
+    <form method="get" action="/parts/{{ part.ipn }}" class="quantity-form">
+      <label>Quantity
+        <input type="number" name="quantity" min="1" inputmode="numeric" value="{{ quantity }}" onchange="this.form.submit()">
+      </label>
+    </form>
+    <form method="post" action="/parts/{{ part.ipn }}/offers/refresh" class="inline-form">
+      <button type="submit">Refresh prices</button>
+      <span class="muted">{{ fetched_note }}</span>
+    </form>
+  </div>
+
+  {% if offers %}
+  <table class="parts-table offers-table">
+    <thead>
+      <tr>
+        <th>Packaging</th>
+        <th>Distributor</th>
+        <th>SKU</th>
+        <th>MOQ</th>
+        <th>Stock</th>
+        <th>Ladder</th>
+        <th>Total</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in offers %}
+      <tr class="{% if row.is_best %}best{% endif %}">
+        <td>{{ row.offer.packaging or '—' }}</td>
+        <td>{{ row.offer.distributor }}</td>
+        <td class="ipn">{{ row.offer.sku }}</td>
+        <td>{{ row.offer.minimum_quantity }}</td>
+        <td>{% if row.offer.stock_quantity is not none %}{{ row.offer.stock_quantity }}{% else %}—{% endif %}</td>
+        <td class="ladder">
+          {% if row.offer.breaks %}
+            {% for b in row.offer.breaks %}{{ b.quantity }}+ {{ b.unit_price_micros | money }}{% if not loop.last %} · {% endif %}{% endfor %}
+          {% else %}
+            <span class="muted">{% if row.offer.source == 'digikey' %}no longer listed{% else %}no price listed{% endif %}</span>
+          {% endif %}
+        </td>
+        <td class="total">
+          {% if row.is_best %}<span class="best-tag">best</span>{% endif %}
+          {% if row.eligible %}{{ row.total_micros | money }}{% else %}<span class="muted">—</span>{% endif %}
+        </td>
+        <td>
+          {% if row.offer.source == 'manual' %}
+          <form method="post" action="/offers/{{ row.offer.id }}/delete" class="inline-form">
+            <button type="submit">Remove</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No offers recorded. Refresh from DigiKey or add one by hand below.</p>
+  {% endif %}
+
+  <details class="offer-add">
+    <summary>Add an offer by hand</summary>
+    <form method="post" action="/parts/{{ part.ipn }}/offers" class="offer-form">
+      <label>Distributor
+        <select name="distributor" required>
+          {% for d in distributors %}
+          <option value="{{ d.name }}">{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>SKU
+        <input name="sku" required>
+      </label>
+      <label>Packaging
+        <input name="packaging" placeholder="e.g. Cut Tape (CT)">
+      </label>
+      <label>URL
+        <input name="url" placeholder="Optional">
+      </label>
+      <label>Minimum quantity
+        <input type="number" name="minimum_quantity" min="1" value="1" inputmode="numeric">
+      </label>
+      <fieldset class="break-rows">
+        <legend>Price breaks</legend>
+        {% for i in range(3) %}
+        <div class="break-row">
+          <input type="number" name="break_quantity" min="1" inputmode="numeric" placeholder="qty">
+          <input type="text" name="break_price" inputmode="decimal" placeholder="unit price (USD)">
+        </div>
+        {% endfor %}
+      </fieldset>
+      <button type="submit" class="primary">Add offer</button>
+    </form>
+  </details>
+</div>
+
 <div class="stock-panel" id="stock">
   <h2>Stock</h2>
   <p class="stock-total">On hand: <strong>{{ stock_total }}</strong></p>
