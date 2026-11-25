@@ -80,4 +80,4 @@ non-root user, with a health check baked into the image.
 
 ## Licence
 
-Not yet chosen. Treat it as all rights reserved until one is added.
+MIT. See [LICENSE](LICENSE).
