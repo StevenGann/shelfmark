@@ -9,6 +9,12 @@
 <body>
   <header>
     <a class="brand" href="/">Shelfmark</a>
+    {% if current_key %}
+    <span class="key-info">{{ current_key.name }} · {{ current_key.role }}</span>
+    <form method="post" action="/logout" class="logout">
+      <button type="submit">Log out</button>
+    </form>
+    {% endif %}
   </header>
   <main>
     {% block content %}{% endblock %}

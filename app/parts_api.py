@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, field_validator
 
+from . import auth
 from .deps import Conn
 from .repo import parts as repo
 from .repo.parts import DuplicatePartError
 
-router = APIRouter(prefix="/api/parts", tags=["parts"])
+router = APIRouter(
+    prefix="/api/parts",
+    tags=["parts"],
+    dependencies=[Depends(auth.require("viewer"))],
+)
 
 DesignStatus = Literal["active", "nrnd", "obsolete", "do-not-use"]
 
@@ -53,7 +58,7 @@ def list_parts(
     return {"items": items, "total": total, "limit": limit, "offset": offset}
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, dependencies=[Depends(auth.require("engineer"))])
 def create_part(
     body: PartCreate,
     conn: Conn,
@@ -82,7 +87,7 @@ def get_part(ipn: str, conn: Conn) -> dict:
     return part
 
 
-@router.patch("/{ipn}")
+@router.patch("/{ipn}", dependencies=[Depends(auth.require("engineer"))])
 def patch_part(
     ipn: str,
     body: PartUpdate,

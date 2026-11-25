@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Log in · Shelfmark{% endblock %}
+{% block content %}
+<div class="login-card">
+  <h1>Log in</h1>
+  <p>Enter your API key.</p>
+  {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+  <form method="post" action="/login" class="login-form">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>API key
+      <input name="key" type="password" autocomplete="off" required autofocus>
+    </label>
+    <button type="submit" class="primary">Log in</button>
+  </form>
+</div>
+{% endblock %}
