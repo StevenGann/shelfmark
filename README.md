@@ -4,8 +4,9 @@ Parts inventory and BOM management for electronics assembly. Take a KiCad BOM,
 know exactly what is on the shelf, and emit a pick-and-place job — without
 spreadsheets, and without a database that has to be exported by hand.
 
-Status: **M0 (skeleton)**. The API serves a health check and the schema exists;
-there is no inventory UI yet.
+Status: **M1.8**. Parts, internal part numbers, API keys, human logins, hosted
+datasheets and images (fetched or uploaded). No stock quantities, no BOM ingest
+yet — those are the next milestones.
 
 ## What it is for
 
@@ -34,7 +35,11 @@ Shelfmark is built around four ideas:
 | Milestone | Contents |
 | --- | --- |
 | M0 | Skeleton, config, migrations, health check — **done** |
-| M1 | Parts, internal part numbers, MPN normalisation |
+| M1 | Parts, internal part numbers, MPN normalisation — **done** |
+| M1.5 | API keys for machines — **done** |
+| M1.6 | Username/password logins and sessions — **done** |
+| M1.7 | Part pages: links, package, hosted datasheets and images — **done** |
+| M1.8 | Datasheets and images a person can upload — **done** |
 | M2 | Supplier offers (DigiKey first) with recorded fixtures |
 | M3 | BOM ingest, parameter extraction, revisions, diff |
 | M4 | Commodity slots and deterministic substitution |
