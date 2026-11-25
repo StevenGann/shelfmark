@@ -191,12 +191,15 @@ def decode(image_bytes: bytes) -> tuple[list[str], str]:
     )
     payloads = [_payload_text(r) for r in results]
     chosen = _choose_payload(results)
-    if chosen is None:
+    if chosen is None and not payloads:
         raise LabelError(
             "No barcode found in that photo — try again with the label filling the frame.",
             payloads=payloads,
         )
-    return payloads, chosen
+    # No MH10.8.2 symbol, but the linear codes read: a small or angled label is
+    # still worth prefilling from them. ``parse_label("", payloads)`` assembles
+    # what it can and the human confirms before anything is written.
+    return payloads, chosen or ""
 
 
 def _split_mh10(raw: str) -> dict[str, str]:
@@ -223,6 +226,43 @@ def _to_int(value: str) -> int | None:
         return None
 
 
+def _parse_linear(payloads: list[str], extras: list[str], result: dict) -> dict:
+    """Assemble a label from linear codes when the 2D symbol did not read.
+
+    Mouser's linear payloads are ``<3-digit mfr id>-<mpn>``, the bare MPN, the
+    quantity, a line item, the origin and an invoice. The supplier part number
+    and the MPN come from the dotted code; the quantity is the largest short
+    integer (line items are three digits at most). Nothing is written from
+    these guesses without a human confirming the form.
+    """
+    for payload in list(payloads) + list(extras):
+        payload = payload.strip()
+        if not payload:
+            continue
+        split = _supplier_pn(payload)
+        if split is not None:
+            supplier_pn, derived_mpn = split
+            if result["distributor_pn"] is None:
+                result["distributor_pn"] = supplier_pn
+            if result["mpn"] is None:
+                result["mpn"] = derived_mpn
+        if result["distributor_pn"] is None and _looks_like_digikey_pn(payload):
+            result["distributor_pn"] = payload
+    numbers = [
+        int(p)
+        for p in list(payloads) + list(extras)
+        if p.strip().isdigit() and len(p.strip()) <= 6 and int(p) > 0
+    ]
+    if result["quantity"] is None and numbers:
+        result["quantity"] = max(numbers)
+    if result["country"] is None:
+        for payload in list(payloads) + list(extras):
+            if re.fullmatch(r"[A-Z]{2}", payload.strip()):
+                result["country"] = payload.strip()
+                break
+    return result
+
+
 def parse_label(raw: str, extras: list[str] | None = None) -> dict:
     """Parse a decoded payload into the label dict.
 
@@ -246,9 +286,7 @@ def parse_label(raw: str, extras: list[str] | None = None) -> dict:
     }
     stripped = raw.strip()
     if not stripped.startswith("[)>"):
-        if stripped:
-            result["distributor_pn"] = stripped
-        return result
+        return _parse_linear([stripped] if stripped else [], extras or [], result)
 
     fields = _split_mh10(stripped)
     if "30P" in fields:

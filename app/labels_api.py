@@ -66,6 +66,13 @@ async def decode_label(request: Request, conn: Conn, key: EngineerKey) -> dict:
     except labels.LabelError as exc:
         raise _label_error(exc) from None
     parsed = labels.parse_label(chosen, payloads)
+    if not parsed["mpn"] and not parsed["distributor_pn"]:
+        raise _label_error(
+            labels.LabelError(
+                "No barcode found in that photo — try again with the label filling the frame.",
+                payloads=payloads,
+            )
+        )
     return {
         "payloads": payloads,
         "label": parsed,

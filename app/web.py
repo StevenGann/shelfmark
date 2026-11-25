@@ -913,6 +913,17 @@ async def stock_scan(request: Request, conn: Conn):
             status_code=422,
         )
     parsed = labels.parse_label(chosen, payloads)
+    if not parsed["mpn"] and not parsed["distributor_pn"]:
+        return _render(
+            request,
+            "stock.html",
+            _stock_context(
+                conn,
+                scan_error="No barcode found in that photo — try again with the label "
+                "filling the frame.",
+            ),
+            status_code=422,
+        )
     return _render(
         request,
         "stock.html",

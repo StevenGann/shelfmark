@@ -290,3 +290,22 @@ def test_a_mouser_sku_resolves_a_part_by_its_supplier_number():
 
     assert resolution["matched_by"] == "distributor_pn"
     assert resolution["part"]["ipn"] == part["ipn"]
+
+
+def test_a_label_with_no_readable_2d_code_still_prefills_from_the_linear_codes():
+    """The TMP118 bag in the house: the Data Matrix did not read, the bars did."""
+    payloads = [
+        "091050594",
+        "20",
+        "TMP118MBIYMSR",
+        "595-TMP118MBIYMSR",
+        "003",
+        "CN",
+        "54FNC4",
+    ]
+    parsed = labels.parse_label("", payloads)
+
+    assert parsed["distributor_pn"] == "595-TMP118MBIYMSR"
+    assert parsed["mpn"] == "TMP118MBIYMSR"
+    assert parsed["quantity"] == 20
+    assert parsed["country"] == "CN"
