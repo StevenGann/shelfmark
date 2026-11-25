@@ -2,21 +2,50 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, auth, db
+from . import __version__, auth, db, enrich
 from .config import settings
 from .keys_api import router as keys_api_router
 from .parts_api import router as parts_api_router
 from .ratelimit import allow
+from .stock_api import router as stock_api_router
 from .web import router as web_router
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+logger = logging.getLogger("shelfmark.queue")
+_tick_lock = asyncio.Lock()
+
+
+def _drain_queue() -> None:
+    """One queue pass, run off the event loop."""
+    conn = db.connect()
+    try:
+        processed = enrich.run_queue(conn)
+        if processed:
+            logger.info("queue tick processed %s job(s)", processed)
+    finally:
+        conn.close()
+
+
+async def _queue_tick() -> None:
+    while True:
+        await asyncio.sleep(settings.queue_tick_seconds)
+        if _tick_lock.locked():
+            continue
+        async with _tick_lock:
+            try:
+                await asyncio.to_thread(_drain_queue)
+            except Exception:  # noqa: BLE001 - a bad tick must not kill the app
+                logger.exception("queue tick failed")
 
 
 @asynccontextmanager
@@ -29,7 +58,18 @@ async def lifespan(app: FastAPI):
         auth.bootstrap(conn)
     finally:
         conn.close()
-    yield
+
+    tick: asyncio.Task[None] | None = None
+    if settings.queue_tick_seconds > 0:
+        logger.info("queue tick every %ss", settings.queue_tick_seconds)
+        tick = asyncio.create_task(_queue_tick())
+    try:
+        yield
+    finally:
+        if tick is not None:
+            tick.cancel()
+            with suppress(asyncio.CancelledError):
+                await tick
 
 
 app = FastAPI(title="Shelfmark", version=__version__, lifespan=lifespan)
@@ -61,6 +101,7 @@ async def rate_limit(request: Request, call_next) -> Response:
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(parts_api_router)
+app.include_router(stock_api_router)
 app.include_router(keys_api_router)
 app.include_router(web_router)
 

@@ -79,6 +79,73 @@
   </span>
 </div>
 
+<div class="stock-panel" id="stock">
+  <h2>Stock</h2>
+  <p class="stock-total">On hand: <strong>{{ stock_total }}</strong></p>
+  {% if stock_error %}<div class="error" role="alert">{{ stock_error }}</div>{% endif %}
+
+  <form method="post" action="/parts/{{ part.ipn }}/stock" class="stock-form stock-new">
+    <label>Location
+      <input type="text" name="location" list="locations" placeholder="e.g. Drawer A" required>
+    </label>
+    <label>Quantity
+      <input type="number" name="quantity" min="0" inputmode="numeric" placeholder="How many" required>
+    </label>
+    <label>Note
+      <input type="text" name="note" placeholder="Optional">
+    </label>
+    <div class="stock-buttons">
+      <button type="submit" name="kind" value="receive" class="primary">+ Receive</button>
+      <button type="submit" name="kind" value="consume">− Consume</button>
+      <button type="submit" name="kind" value="adjust">Count</button>
+    </div>
+  </form>
+
+  {% for item in stock_items %}
+  <div class="stock-row">
+    <span class="stock-location">{{ item.location }}</span>
+    <span class="stock-qty">{{ item.quantity }}</span>
+    <details class="stock-actions">
+      <summary>+ receive / − consume / count / move</summary>
+      <form method="post" action="/parts/{{ part.ipn }}/stock" class="stock-form">
+        <input type="hidden" name="location" value="{{ item.location }}">
+        <label>Quantity
+          <input type="number" name="quantity" min="0" inputmode="numeric" placeholder="How many" required>
+        </label>
+        <label>Note
+          <input type="text" name="note" placeholder="Optional">
+        </label>
+        <div class="stock-buttons">
+          <button type="submit" name="kind" value="receive" class="primary">+ Receive</button>
+          <button type="submit" name="kind" value="consume">− Consume</button>
+          <button type="submit" name="kind" value="adjust">Count</button>
+        </div>
+      </form>
+      <form method="post" action="/parts/{{ part.ipn }}/stock/move" class="stock-form stock-move">
+        <input type="hidden" name="from_location" value="{{ item.location }}">
+        <label>Quantity
+          <input type="number" name="quantity" min="1" inputmode="numeric" placeholder="How many to move" required>
+        </label>
+        <label>Move to
+          <input type="text" name="to_location" list="locations" placeholder="Destination" required>
+        </label>
+        <button type="submit">Move</button>
+      </form>
+    </details>
+  </div>
+  {% endfor %}
+
+  {% if not stock_items %}
+  <p class="muted">No stock recorded. Record a receipt above to get started.</p>
+  {% endif %}
+
+  <datalist id="locations">
+    {% for loc in locations %}
+    <option value="{{ loc.location }}"></option>
+    {% endfor %}
+  </datalist>
+</div>
+
 <div class="assets">
   <h2>Assets</h2>
 

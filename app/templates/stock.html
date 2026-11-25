@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Stock · Shelfmark{% endblock %}
+{% block content %}
+<h1>Stock</h1>
+
+<div class="toolbar">
+  <form method="get" action="/stock" class="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="IPN, MPN, manufacturer, location" aria-label="Search stock">
+    <input type="search" name="location" value="{{ location }}" list="locations" placeholder="Location">
+    <label class="below">Below
+      <input type="number" name="below" value="{{ below }}" min="0" inputmode="numeric" placeholder="N" aria-label="Below quantity">
+    </label>
+    <button type="submit" class="primary">Filter</button>
+  </form>
+</div>
+
+<datalist id="locations">
+  {% for loc in locations %}
+  <option value="{{ loc.location }}"></option>
+  {% endfor %}
+</datalist>
+
+{% if groups %}
+  {% for group in groups %}
+  <section class="stock-group">
+    <h2>{{ group.location }} <span class="muted">({{ group.total }} on hand)</span></h2>
+    <table class="parts-table stock-table">
+      <thead>
+        <tr><th>IPN</th><th>MPN</th><th>Manufacturer</th><th>Qty</th></tr>
+      </thead>
+      <tbody>
+        {% for row in group.rows %}
+        <tr>
+          <td><span class="label">IPN</span><a class="ipn" href="/parts/{{ row.ipn }}">{{ row.ipn }}</a></td>
+          <td><span class="label">MPN</span>{{ row.mpn }}</td>
+          <td><span class="label">Manufacturer</span>{{ row.manufacturer }}</td>
+          <td><span class="label">Qty</span>{{ row.quantity }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endfor %}
+{% else %}
+<div class="empty">
+  <p>No stock matches your filters.</p>
+</div>
+{% endif %}
+{% endblock %}

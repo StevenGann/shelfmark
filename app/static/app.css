@@ -487,3 +487,96 @@ a.button.primary {
     flex: 1;
   }
 }
+
+.stock-panel {
+  margin: 1.5rem 0;
+}
+
+.stock-total {
+  font-size: 1.125rem;
+  margin: 0.25rem 0 1rem;
+}
+
+.stock-total strong {
+  font-size: 1.375rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 24rem;
+  margin: 0.5rem 0 1rem;
+}
+
+.stock-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.stock-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.stock-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.stock-location {
+  flex: 1 1 12rem;
+  font-weight: 600;
+}
+
+.stock-qty {
+  font-variant-numeric: tabular-nums;
+  min-width: 2rem;
+  text-align: right;
+}
+
+.stock-actions {
+  flex: 1 1 100%;
+}
+
+.stock-actions summary {
+  cursor: pointer;
+  color: var(--accent);
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.stock-actions .stock-form {
+  max-width: none;
+  margin-top: 0.5rem;
+}
+
+.stock-group {
+  margin: 1.5rem 0;
+}
+
+.stock-group h2 {
+  font-size: 1.125rem;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.below {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+}
+
+.below input {
+  width: 5rem;
+}

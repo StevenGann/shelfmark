@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     rate_limit: int = 600
     # First admin key on an empty api_key table; generated when unset.
     bootstrap_key: str = ""
+    # How often the app drains the enrichment queue itself, in seconds.
+    # 0 disables the timer (the CLI still works); the pod runs one process, so
+    # the tick is the only scheduler there is.
+    queue_tick_seconds: int = 900
 
     @property
     def db_path(self) -> Path:

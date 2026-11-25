@@ -22,7 +22,9 @@ from .ratelimit import allow
 from .ratelimit import reset as reset_rate
 from .repo import catalog
 from .repo import parts as repo
+from .repo import stock as stock_repo
 from .repo.parts import DESIGN_STATUSES, DuplicatePartError
+from .repo.stock import StockError
 
 
 def _utc_now() -> str:
@@ -404,6 +406,7 @@ def index(
     category: str = "",
     package: str = "",
     page: int = 1,
+    sort: str = "",
 ):
     page = max(1, page)
     items, total = repo.list_parts(
@@ -413,6 +416,7 @@ def index(
         package=package or None,
         limit=PAGE_SIZE,
         offset=(page - 1) * PAGE_SIZE,
+        sort=sort or None,
     )
     thumbnails = catalog.thumbnails(conn, [int(p["id"]) for p in items])
     for part in items:
@@ -429,6 +433,7 @@ def index(
             "package": package,
             "page": page,
             "total_pages": total_pages,
+            "sort": sort,
             "categories": _categories(conn),
             "packages": _packages(conn),
         },
@@ -488,6 +493,10 @@ def _part_detail_context(conn: sqlite3.Connection, part: dict[str, Any]) -> dict
         "form": {},
         "statuses": DESIGN_STATUSES,
         "error": None,
+        "stock_error": None,
+        "stock_total": stock_repo.total_on_hand(conn, int(part["id"])),
+        "stock_items": stock_repo.get_stock(conn, int(part["id"])),
+        "locations": stock_repo.list_locations(conn),
         "manufacturer_link": next((link for link in links if link["kind"] == "manufacturer"), None),
         "distributor_links": [link for link in links if link["kind"] == "distributor"],
         "datasheet_source": next((link for link in links if link["kind"] == "datasheet"), None),
@@ -511,6 +520,128 @@ async def part_update(ipn: str, request: Request, conn: Conn):
         return _render(request, "detail.html", context)
     assert part is not None
     return RedirectResponse(f"/parts/{part['ipn']}", status_code=303)
+
+
+def _stock_error_context(
+    request: Request,
+    conn: sqlite3.Connection,
+    part: dict[str, Any],
+    message: str,
+    status_code: int = 409,
+):
+    context = _part_detail_context(conn, part)
+    context["stock_error"] = message
+    return _render(request, "detail.html", context, status_code=status_code)
+
+
+def _actor_from_session(request: Request) -> str:
+    user = request.state.user
+    return user.get("username") or "api"
+
+
+@router.post("/parts/{ipn}/stock", dependencies=[Depends(_require_session("engineer"))])
+async def part_stock_action(ipn: str, request: Request, conn: Conn):
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    values = _form_values(await request.form())
+    location = values.get("location") or ""
+    kind = values.get("kind") or ""
+    note = values.get("note") or None
+    try:
+        quantity = int(values.get("quantity") or "")
+    except ValueError:
+        return _stock_error_context(
+            request, conn, part, "Quantity must be a whole number.", status_code=400
+        )
+    try:
+        stock_repo.record_move(
+            conn,
+            int(part["id"]),
+            location,
+            kind,
+            quantity,
+            note,
+            _actor_from_session(request),
+        )
+    except StockError as e:
+        return _stock_error_context(request, conn, part, str(e))
+    except ValueError as e:
+        return _stock_error_context(request, conn, part, str(e), status_code=400)
+    return RedirectResponse(f"/parts/{ipn}#stock", status_code=303)
+
+
+@router.post("/parts/{ipn}/stock/move", dependencies=[Depends(_require_session("engineer"))])
+async def part_stock_move(ipn: str, request: Request, conn: Conn):
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    values = _form_values(await request.form())
+    from_location = values.get("from_location") or ""
+    to_location = values.get("to_location") or ""
+    try:
+        quantity = int(values.get("quantity") or "")
+    except ValueError:
+        return _stock_error_context(
+            request, conn, part, "Quantity must be a whole number.", status_code=400
+        )
+    try:
+        stock_repo.move_between(
+            conn,
+            int(part["id"]),
+            from_location,
+            to_location,
+            quantity,
+            _actor_from_session(request),
+        )
+    except StockError as e:
+        return _stock_error_context(request, conn, part, str(e))
+    except ValueError as e:
+        return _stock_error_context(request, conn, part, str(e), status_code=400)
+    return RedirectResponse(f"/parts/{ipn}#stock", status_code=303)
+
+
+@router.get("/stock", dependencies=[Depends(_require_session())])
+def stock_page(
+    request: Request,
+    conn: Conn,
+    q: str = "",
+    location: str = "",
+    below: str = "",
+):
+    below_int: int | None = None
+    if below:
+        try:
+            below_int = int(below)
+        except ValueError:
+            below_int = None
+    rows = stock_repo.list_stock(conn, location=location or None, q=q or None, below=below_int)
+    groups: list[dict[str, Any]] = []
+    by_norm: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        norm = row["location_norm"]
+        group = by_norm.get(norm)
+        if group is None:
+            group = {
+                "location": row["location"],
+                "total": 0,
+                "rows": [],
+            }
+            by_norm[norm] = group
+            groups.append(group)
+        group["rows"].append(row)
+        group["total"] += int(row["quantity"])
+    return _render(
+        request,
+        "stock.html",
+        {
+            "groups": groups,
+            "locations": stock_repo.list_locations(conn),
+            "q": q,
+            "location": location,
+            "below": below,
+        },
+    )
 
 
 @router.get("/assets/{rel_path:path}", dependencies=[Depends(_require_session())])

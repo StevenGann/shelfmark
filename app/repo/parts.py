@@ -145,6 +145,7 @@ def list_parts(
     package: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    sort: str | None = None,
 ) -> tuple[list[dict], int]:
     clauses: list[str] = []
     params: list[object] = []
@@ -167,13 +168,22 @@ def list_parts(
         f"SELECT count(*) AS n FROM part p JOIN manufacturer m ON m.id = p.manufacturer_id{where}",
         params,
     ).fetchone()
+    order = "COALESCE(s.on_hand, 0) ASC, p.ipn ASC" if sort == "onhand" else "p.ipn ASC"
     rows = conn.execute(
-        f"SELECT p.*, m.name AS manufacturer, m.website AS manufacturer_website "
-        f"FROM part p JOIN manufacturer m ON m.id = p.manufacturer_id{where} "
-        f"ORDER BY p.ipn LIMIT ? OFFSET ?",
+        f"SELECT p.*, m.name AS manufacturer, m.website AS manufacturer_website, "
+        f"COALESCE(s.on_hand, 0) AS on_hand "
+        f"FROM part p JOIN manufacturer m ON m.id = p.manufacturer_id "
+        f"LEFT JOIN (SELECT part_id, SUM(quantity) AS on_hand FROM stock_item "
+        f"GROUP BY part_id) s ON s.part_id = p.id"
+        f"{where} ORDER BY {order} LIMIT ? OFFSET ?",
         [*params, limit, offset],
     ).fetchall()
-    return [_row_to_part(r) for r in rows], int(total["n"])
+    parts = []
+    for row in rows:
+        part = _row_to_part(row)
+        part["on_hand"] = int(row["on_hand"])
+        parts.append(part)
+    return parts, int(total["n"])
 
 
 def update_part(conn: sqlite3.Connection, ipn: str, **fields: object) -> dict | None:
