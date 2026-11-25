@@ -20,7 +20,12 @@
       <td><span class="label">References</span>{{ line.references|join(', ') }}</td>
       <td><span class="label">MPN</span><strong>{{ line.mpn }}</strong></td>
       <td><span class="label">Manufacturer</span>{{ line.manufacturer or "—" }}</td>
-      <td><span class="label">Qty</span>{{ line.quantity }}{% if line.dnp %} <span class="status status-dnp">DNP</span>{% endif %}</td>
+      <td>
+        <span class="label">Qty</span>{{ line.quantity }}{% if line.dnp %} <span class="status status-dnp">DNP</span>{% endif %}
+        {% if line.shortfall and line.shortfall.short > 0 %}
+        <div class="shortfall">short {{ line.shortfall.short }}{% for s in line.shortfall.substitutes if s.substitute_on_hand > 0 %} — {{ s.substitute_ipn }} {{ s.fit }}, {{ s.substitute_on_hand }} on hand{% endfor %}</div>
+        {% endif %}
+      </td>
       <td><span class="label">Package</span>{% if line.package %}<span class="chip">{{ line.package }}</span>{% else %}—{% endif %}</td>
       <td>
         <span class="label">Match</span>

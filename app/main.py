@@ -20,6 +20,7 @@ from .offers_api import router as offers_api_router
 from .parts_api import router as parts_api_router
 from .ratelimit import allow
 from .stock_api import router as stock_api_router
+from .subs_api import router as subs_api_router
 from .web import router as web_router
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -111,6 +112,7 @@ app.include_router(boms_api_router)
 app.include_router(keys_api_router)
 app.include_router(labels_api_router)
 app.include_router(offers_api_router)
+app.include_router(subs_api_router)
 app.include_router(web_router)
 
 

@@ -306,6 +306,88 @@
 </div>
 {% endif %}
 
+<div class="substitutes-panel" id="substitutes">
+  <h2>Substitutes</h2>
+  {% if substitute_error %}<div class="error" role="alert">{{ substitute_error }}</div>{% endif %}
+
+  <table class="parts-table">
+    <thead>
+      <tr><th>IPN</th><th>MPN</th><th>Package</th><th>Fit</th><th>Stock</th><th>Note</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for link in substitutes_out %}
+      <tr>
+        <td><a class="ipn" href="/parts/{{ link.substitute_ipn }}">{{ link.substitute_ipn }}</a></td>
+        <td>{{ link.substitute_mpn }}</td>
+        <td>{% if link.substitute_package %}<span class="chip">{{ link.substitute_package }}</span>{% else %}—{% endif %}</td>
+        <td>{{ link.fit }}</td>
+        <td>{{ link.substitute_on_hand }}</td>
+        <td>{{ link.note or '—' }}</td>
+        <td>
+          <form method="post" action="/parts/{{ part.ipn }}/substitutes/delete" class="inline-form">
+            <input type="hidden" name="part_ipn" value="{{ link.part_ipn }}">
+            <input type="hidden" name="substitute_ipn" value="{{ link.substitute_ipn }}">
+            <button type="submit">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not substitutes_out %}
+      <tr><td colspan="7" class="muted">No substitutes yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <h3>Can stand in for</h3>
+  <table class="parts-table">
+    <thead>
+      <tr><th>IPN</th><th>MPN</th><th>Package</th><th>Fit</th><th>Stock</th><th>Note</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for link in substitutes_in %}
+      <tr>
+        <td><a class="ipn" href="/parts/{{ link.part_ipn }}">{{ link.part_ipn }}</a></td>
+        <td>{{ link.part_mpn }}</td>
+        <td>{% if link.part_package %}<span class="chip">{{ link.part_package }}</span>{% else %}—{% endif %}</td>
+        <td>{{ link.fit }}</td>
+        <td>{{ link.part_on_hand }}</td>
+        <td>{{ link.note or '—' }}</td>
+        <td>
+          <form method="post" action="/parts/{{ part.ipn }}/substitutes/delete" class="inline-form">
+            <input type="hidden" name="part_ipn" value="{{ link.part_ipn }}">
+            <input type="hidden" name="substitute_ipn" value="{{ link.substitute_ipn }}">
+            <button type="submit">Remove</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      {% if not substitutes_in %}
+      <tr><td colspan="7" class="muted">This part does not stand in for anything.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+
+  <details class="offer-add">
+    <summary>Add a substitute</summary>
+    <form method="post" action="/parts/{{ part.ipn }}/substitutes" class="offer-form">
+      <label>Part (IPN or MPN)
+        <input name="substitute" required>
+      </label>
+      <label>Fit
+        <select name="fit" id="fit-select" required>
+          {% for f in fits %}
+          <option value="{{ f }}">{{ f }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Note
+        <input name="note" id="fit-note" placeholder="Required for form-fit">
+      </label>
+      <button type="submit" class="primary">Add substitute</button>
+    </form>
+  </details>
+</div>
+
 <h2>Edit</h2>
 <form method="post" action="/parts/{{ part.ipn }}" class="part-form">
   <label>MPN
@@ -334,4 +416,20 @@
 </form>
 
 <p><a href="/">Back to list</a></p>
+<script>
+  (function () {
+    var select = document.getElementById("fit-select");
+    var note = document.getElementById("fit-note");
+    if (!select || !note) return;
+    function sync() {
+      if (select.value === "form-fit") {
+        note.setAttribute("required", "required");
+      } else {
+        note.removeAttribute("required");
+      }
+    }
+    select.addEventListener("change", sync);
+    sync();
+  })();
+</script>
 {% endblock %}

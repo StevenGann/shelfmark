@@ -26,9 +26,11 @@ from .repo import catalog
 from .repo import offers as offers_repo
 from .repo import parts as repo
 from .repo import stock as stock_repo
+from .repo import substitutes as subs_repo
 from .repo.boms import DuplicateProjectError, DuplicateRevisionError
 from .repo.parts import DESIGN_STATUSES, DuplicatePartError
 from .repo.stock import StockError
+from .repo.substitutes import FIT_LEVELS, DuplicateSubstituteError
 
 
 def _utc_now() -> str:
@@ -560,6 +562,60 @@ def part_enrich(ipn: str, conn: Conn):
     return RedirectResponse(f"/parts/{ipn}", status_code=303)
 
 
+@router.post("/parts/{ipn}/substitutes", dependencies=[Depends(_require_session("engineer"))])
+async def substitute_add(ipn: str, request: Request, conn: Conn):
+    part = repo.get_part(conn, ipn)
+    if part is None:
+        raise HTTPException(status_code=404, detail="not found")
+    values = _form_values(await request.form())
+    ref = (values.get("substitute") or "").strip()
+    fit = (values.get("fit") or "").strip()
+    note = (values.get("note") or "").strip() or None
+    error: str | None = None
+    if not ref:
+        error = "A part IPN or MPN is required."
+    elif fit not in FIT_LEVELS:
+        error = "Choose a fit."
+    else:
+        substitute = subs_repo.resolve_part_ref(conn, ref)
+        if substitute is None:
+            error = f"No part matches {ref!r}."
+        else:
+            try:
+                subs_repo.add_link(
+                    conn,
+                    int(part["id"]),
+                    int(substitute["id"]),
+                    fit,
+                    note,
+                    _actor_from_session(request),
+                )
+            except DuplicateSubstituteError:
+                error = "That substitute is already linked."
+            except ValueError as exc:
+                error = str(exc)
+    if error is not None:
+        context = _part_detail_context(conn, part)
+        context["substitute_error"] = error
+        return _render(request, "detail.html", context, status_code=400)
+    return RedirectResponse(f"/parts/{ipn}#substitutes", status_code=303)
+
+
+@router.post(
+    "/parts/{ipn}/substitutes/delete", dependencies=[Depends(_require_session("engineer"))]
+)
+async def substitute_remove(ipn: str, request: Request, conn: Conn):
+    values = _form_values(await request.form())
+    part_ipn = (values.get("part_ipn") or "").strip()
+    substitute_ipn = (values.get("substitute_ipn") or "").strip()
+    part = repo.get_part(conn, part_ipn)
+    substitute = repo.get_part(conn, substitute_ipn)
+    if part is None or substitute is None:
+        raise HTTPException(status_code=404, detail="not found")
+    subs_repo.remove_link(conn, int(part["id"]), int(substitute["id"]))
+    return RedirectResponse(f"/parts/{ipn}#substitutes", status_code=303)
+
+
 def _part_detail_context(
     conn: sqlite3.Connection, part: dict[str, Any], quantity: int = 1
 ) -> dict[str, Any]:
@@ -581,6 +637,10 @@ def _part_detail_context(
         "error": None,
         "stock_error": None,
         "offer_error": None,
+        "substitute_error": None,
+        "substitutes_out": subs_repo.list_out(conn, int(part["id"])),
+        "substitutes_in": subs_repo.list_in(conn, int(part["id"])),
+        "fits": FIT_LEVELS,
         "stock_total": stock_repo.total_on_hand(conn, int(part["id"])),
         "stock_items": stock_repo.get_stock(conn, int(part["id"])),
         "locations": stock_repo.list_locations(conn),
@@ -1141,13 +1201,20 @@ def revision_page(revision_id: int, request: Request, conn: Conn):
     if revision is None:
         raise HTTPException(status_code=404, detail="not found")
     project = boms_repo.get_project(conn, revision["project_id"])
+    lines = boms_repo.get_lines(conn, revision_id)
+    for line in lines:
+        line["shortfall"] = (
+            subs_repo.shortfall(conn, int(line["part_id"]), int(line["quantity"]))
+            if line["part_id"] is not None
+            else None
+        )
     return _render(
         request,
         "revision.html",
         {
             "revision": revision,
             "project": project,
-            "lines": boms_repo.get_lines(conn, revision_id),
+            "lines": lines,
             "error": None,
         },
     )

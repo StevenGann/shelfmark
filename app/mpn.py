@@ -32,3 +32,14 @@ def fold_name(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value)
     stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
     return " ".join(stripped.casefold().split())
+
+
+def normalise_value(value: str) -> str:
+    """Fold a passive value into one search key.
+
+    ``2.2uF``, ``2.2 µF`` and ``2.2UF`` all become ``2.2uf`` so that two parts
+    are recognisably the same component without the catalogue enforcing a
+    spelling.
+    """
+    folded = value.casefold().replace("\u00b5", "u").replace("\u03bc", "u")
+    return "".join(ch for ch in folded if not ch.isspace())

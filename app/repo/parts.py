@@ -12,7 +12,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 from ..ipn import format_ipn
-from ..mpn import normalise_mpn
+from ..mpn import normalise_mpn, normalise_value
 from .catalog import _ensure_manufacturer
 
 DESIGN_STATUSES = ("active", "nrnd", "obsolete", "do-not-use")
@@ -24,6 +24,8 @@ _ALLOWED_UPDATE_FIELDS = {
     "category",
     "notes",
     "design_status",
+    "package",
+    "value",
 }
 
 _PART_SELECT = (
@@ -229,7 +231,15 @@ def update_part(conn: sqlite3.Connection, ipn: str, **fields: object) -> dict | 
     if "manufacturer" in fields:
         setters.append("manufacturer_id = ?")
         values.append(manufacturer_id)
-    for name in ("description", "category", "notes", "design_status"):
+    if "value" in fields:
+        raw_value = fields["value"]
+        if raw_value is not None and not isinstance(raw_value, str):
+            raise ValueError("value must be a string")
+        setters.append("value = ?")
+        values.append(raw_value)
+        setters.append("value_norm = ?")
+        values.append(normalise_value(raw_value) if raw_value else None)
+    for name in ("package", "description", "category", "notes", "design_status"):
         if name in fields:
             setters.append(f"{name} = ?")
             values.append(fields[name])

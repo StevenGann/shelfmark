@@ -14,8 +14,10 @@ from .repo import boms as boms_repo
 from .repo import catalog
 from .repo import parts as repo
 from .repo import stock as stock_repo
+from .repo import substitutes as subs_repo
 from .repo.boms import DuplicateRevisionError
 from .repo.parts import DuplicatePartError
+from .repo.substitutes import FIT_LEVELS, DuplicateSubstituteError
 
 
 def _print_key_row(row: dict) -> None:
@@ -331,6 +333,57 @@ def _run_offers(args: argparse.Namespace) -> int:
         conn.close()
 
 
+def _run_subs(args: argparse.Namespace) -> int:
+    db.migrate()
+    conn = db.connect()
+    try:
+        part = repo.get_part(conn, args.ipn)
+        if part is None:
+            print(f"no such part: {args.ipn}", file=sys.stderr)
+            return 1
+
+        if args.subs_command == "list":
+            for link in subs_repo.list_out(conn, int(part["id"])):
+                print(
+                    f"{link['substitute_ipn']}\t{link['fit']}\t{link['substitute_mpn']}\t"
+                    f"{link['substitute_on_hand']}\t"
+                    f"{link['created_by'] or '-'}\t{link['note'] or ''}"
+                )
+            return 0
+
+        substitute = subs_repo.resolve_part_ref(conn, args.substitute)
+        if substitute is None:
+            print(f"no such part: {args.substitute}", file=sys.stderr)
+            return 1
+
+        if args.subs_command == "add":
+            try:
+                link = subs_repo.add_link(
+                    conn,
+                    int(part["id"]),
+                    int(substitute["id"]),
+                    args.fit,
+                    args.note,
+                    "cli",
+                )
+            except DuplicateSubstituteError:
+                print(f"link {part['ipn']} -> {substitute['ipn']} already exists", file=sys.stderr)
+                return 1
+            except ValueError as error:
+                print(str(error), file=sys.stderr)
+                return 1
+            print(f"linked {link['part_ipn']} -> {link['substitute_ipn']} ({link['fit']})")
+            return 0
+
+        if not subs_repo.remove_link(conn, int(part["id"]), int(substitute["id"])):
+            print(f"no link {part['ipn']} -> {substitute['ipn']}", file=sys.stderr)
+            return 1
+        print(f"removed {part['ipn']} -> {substitute['ipn']}")
+        return 0
+    finally:
+        conn.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="shelfmark")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -403,6 +456,19 @@ def main(argv: list[str] | None = None) -> int:
     )
     offers_sub.add_parser("audit", help="report inverted price ladders")
 
+    subs = sub.add_parser("subs", help="manage part substitutions")
+    subs_sub = subs.add_subparsers(dest="subs_command", required=True)
+    subs_list = subs_sub.add_parser("list", help="list a part's substitutes")
+    subs_list.add_argument("ipn")
+    subs_add = subs_sub.add_parser("add", help="add a substitute link")
+    subs_add.add_argument("ipn")
+    subs_add.add_argument("substitute")
+    subs_add.add_argument("--fit", required=True, choices=FIT_LEVELS)
+    subs_add.add_argument("--note")
+    subs_remove = subs_sub.add_parser("remove", help="remove a substitute link")
+    subs_remove.add_argument("ipn")
+    subs_remove.add_argument("substitute")
+
     args = parser.parse_args(argv)
 
     if args.command == "enrich":
@@ -416,6 +482,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "offers":
         return _run_offers(args)
+
+    if args.command == "subs":
+        return _run_subs(args)
 
     if args.command == "user":
         return _run_user(args)

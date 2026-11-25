@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 
 from .. import assets
 from ..bom import ParsedLine, natural_key, parse_bom
-from ..mpn import fold_name
+from ..mpn import fold_name, normalise_value
 from . import parts as parts_repo
 from .catalog import normalise_name
 from .parts import DuplicatePartError
@@ -178,6 +178,20 @@ def _apply_package_update(conn: sqlite3.Connection, part_id: int, package: str) 
     )
 
 
+def _fill_part_value(conn: sqlite3.Connection, part_id: int, value: str) -> None:
+    """Set a part's value from a BOM line when it has none. Never overwrites.
+
+    ``value_norm`` is derived with the same fold (case, spaces, the micro sign)
+    the substitution suggestions use, so "2.2uF" and "2.2 µF" are one value.
+    """
+    row = conn.execute("SELECT value FROM part WHERE id = ?", (part_id,)).fetchone()
+    if row is not None and not (row["value"] and str(row["value"]).strip()):
+        conn.execute(
+            "UPDATE part SET value = ?, value_norm = ?, updated_at = ? WHERE id = ?",
+            (value, normalise_value(value), _utc_now(), part_id),
+        )
+
+
 def create_revision(
     conn: sqlite3.Connection,
     *,
@@ -249,6 +263,8 @@ def create_revision(
             )
             if line.get("package_update"):
                 _apply_package_update(conn, int(line["part_id"]), str(line["package_update"]))
+            if line.get("part_id") and line.get("value"):
+                _fill_part_value(conn, int(line["part_id"]), str(line["value"]))
         conn.commit()
     except BaseException:
         conn.rollback()
