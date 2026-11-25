@@ -303,3 +303,23 @@ def test_mpn_under_another_manufacturer_says_so(client):
     assert lines[0]["match_status"] == "unmatched"
     assert "different manufacturer" in lines[0]["match_note"]
     assert "SK-00001" in lines[0]["match_note"]
+
+
+def test_exact_manufacturer_spelling_beats_the_folded_duplicate(client):
+    """Two catalogue rows that fold to one name must not make the line ambiguous."""
+    first = client.post(
+        "/api/parts", json={"mpn": "74405042068", "manufacturer": "Würth Elektronik"}
+    ).json()
+    client.post("/api/parts", json={"mpn": "74405042068", "manufacturer": "Wurth Elektronik"})
+    project = _project(client)
+
+    r = _import(
+        client,
+        project["id"],
+        "rev A",
+        _csv(["Reference", "MPN", "Manufacturer"], [["L402", "74405042068", "Wurth Elektronik"]]),
+    )
+    assert r.status_code == 201
+    lines = client.get(f"/api/revisions/{r.json()['revision_id']}").json()["lines"]
+    assert lines[0]["match_status"] == "matched"
+    assert lines[0]["ipn"] != first["ipn"]

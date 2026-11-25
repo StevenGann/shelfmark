@@ -326,11 +326,28 @@ def match_lines(conn: sqlite3.Connection, parsed: list[ParsedLine]) -> list[dict
             (line.mpn_norm,),
         ).fetchall()
         if line.manufacturer_norm:
-            rows = [
+            wanted = fold_name(line.manufacturer or "")
+            exact = [
                 row
                 for row in candidates
-                if fold_name(str(row["manufacturer_name"])) == fold_name(line.manufacturer or "")
+                if str(row["manufacturer_name"]).strip().lower()
+                == (line.manufacturer or "").strip().lower()
             ]
+            folded = [
+                row for row in candidates if fold_name(str(row["manufacturer_name"])) == wanted
+            ]
+            # Exact spelling first: if the catalogue has one part under the very
+            # name the BOM used, that is the answer even when another row spells
+            # the same company differently (a duplicate the catalogue should
+            # lose). Folding is the fallback, not the first rule.
+            if len(exact) == 1:
+                rows = exact
+            elif len(folded) == 1:
+                rows = folded
+            elif folded:
+                rows = folded
+            else:
+                rows = []
         else:
             rows = candidates
 
