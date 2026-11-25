@@ -281,3 +281,34 @@ def test_download_reports_http_404_as_a_download_error(monkeypatch, tmp_path):
             max_bytes=1024,
             allowed_types={"application/pdf"},
         )
+
+
+def test_failed_datasheet_records_failure_without_raising(monkeypatch):
+    """All candidates failing must record one failed row, not crash the job."""
+    from app import db
+    from app.repo import catalog
+    from app.repo import parts as repo
+
+    data = _load("productdetails_dac81416.json")
+    monkeypatch.setattr(enrich, "fetch_product_details", lambda mpn: data)
+
+    def always_fails(url, dest, *, max_bytes, allowed_types, timeout=120):
+        raise enrich.DownloadError("unexpected content type: text/html")
+
+    monkeypatch.setattr(enrich, "download", always_fails)
+
+    db.migrate()
+    conn = db.connect()
+    part = repo.create_part(conn, mpn="DAC81416RHAT", manufacturer="Texas Instruments")
+    catalog.queue_job(conn, int(part["id"]))
+    enrich.run_queue(conn)
+    assets = [
+        a for a in catalog.list_part_assets(conn, int(part["id"])) if a["kind"] == "datasheet"
+    ]
+    job = catalog.latest_job(conn, int(part["id"]))
+    conn.close()
+
+    assert len(assets) == 1
+    assert assets[0]["status"] == "failed"
+    assert "text/html" in assets[0]["error"]
+    assert job["status"] == "done"

@@ -231,7 +231,7 @@ def download(
     *,
     max_bytes: int,
     allowed_types: set[str],
-    timeout: int = 30,
+    timeout: int = 120,
 ) -> tuple[int, str, str]:
     """Download *url* to *dest*; return ``(bytes, sha256, content_type)``.
 
@@ -375,18 +375,6 @@ def _fetch_asset(
         fetched_at=now,
         status="failed",
         error=last_error,
-    )
-    catalog.add_part_asset(
-        conn,
-        part["id"],
-        kind=kind,
-        source_url=source_url,
-        rel_path=rel_path,
-        content_type=content_type,
-        bytes=size,
-        sha256=sha256,
-        fetched_at=now,
-        status="ok",
     )
 
 
