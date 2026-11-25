@@ -231,7 +231,7 @@ def download(
     *,
     max_bytes: int,
     allowed_types: set[str],
-    timeout: int = 120,
+    timeout: int = 60,
 ) -> tuple[int, str, str]:
     """Download *url* to *dest*; return ``(bytes, sha256, content_type)``.
 
@@ -258,7 +258,11 @@ def download(
         total = 0
         with open(dest, "wb") as out:
             while True:
-                chunk = resp.read(DOWNLOAD_CHUNK)
+                try:
+                    chunk = resp.read(DOWNLOAD_CHUNK)
+                except (TimeoutError, OSError) as error:
+                    # A stalled read is a failed download, not a crashed job.
+                    raise DownloadError(f"read failed: {error}") from error
                 if not chunk:
                     break
                 total += len(chunk)
