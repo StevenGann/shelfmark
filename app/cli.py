@@ -226,7 +226,7 @@ def _run_label(args: argparse.Namespace) -> int:
     except labels.LabelError as error:
         print(str(error), file=sys.stderr)
         return 1
-    parsed = labels.parse_label(chosen)
+    parsed = labels.parse_label(chosen, payloads)
     conn = db.connect()
     try:
         resolution = labels.resolve_label(conn, parsed)
@@ -500,7 +500,9 @@ def main(argv: list[str] | None = None) -> int:
     bom_list = bom_sub.add_parser("list", help="list a project's revisions")
     bom_list.add_argument("--project", required=True)
 
-    label = sub.add_parser("label", help="decode and receive DigiKey shipping labels")
+    label = sub.add_parser(
+        "label", help="decode and receive supplier shipping labels (DigiKey, Mouser)"
+    )
     label_sub = label.add_subparsers(dest="label_command", required=True)
     label_scan = label_sub.add_parser("scan", help="decode a label image")
     label_scan.add_argument("--file", required=True)

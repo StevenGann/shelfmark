@@ -15,14 +15,20 @@ permissions:
 
 jobs:
   test:
-    name: Lint, types, tests
+    name: Lint, types, tests (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.11 is the floor in pyproject; 3.12 is what the image runs. Testing
+        # both keeps the floor honest instead of aspirational.
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v6
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: Install
@@ -38,8 +44,35 @@ jobs:
       - name: Types
         run: mypy app
 
-      - name: Tests
-        run: pytest -q
+      - name: Tests (coverage gate 83%, currently 84%)
+        run: |
+          pytest -q \
+            --cov=app --cov-report=term-missing --cov-report=xml \
+            --cov-fail-under=83
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo "### Test coverage"
+            echo '```'
+            coverage report | tail -1
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore
+
+      - name: Security lint (bandit)
+        run: bandit -q -c pyproject.toml -r app -ll
+
+      - name: Dependency audit (pip-audit)
+        run: pip-audit --progress-spinner off
 
   image:
     name: Build and publish image

@@ -1,87 +1,198 @@
 # Shelfmark
 
-Parts inventory and BOM management for electronics assembly. Take a KiCad BOM,
-know exactly what is on the shelf, and emit a pick-and-place job — without
-spreadsheets, and without a database that has to be exported by hand.
+**Parts inventory, BOMs and build tracking for people who assemble boards from KiCad.**
 
-Status: **M1.8**. Parts, internal part numbers, API keys, human logins, hosted
-datasheets and images (fetched or uploaded). No stock quantities, no BOM ingest
-yet — those are the next milestones.
+Shelfmark answers four questions in one place: what parts do we have, where are they, do we have
+enough for this board, and what goes in the machine.
 
-## What it is for
+![MIT licensed](https://img.shields.io/badge/licence-MIT-blue)
 
-Small-batch assembly has an awkward shape. The design lives in KiCad, the parts
-live in a drawer, the prices live on a distributor's website, and the placement
-file wants part names that match a machine library. Every tool solves one of
-those and none of them solve the seam between them.
+---
 
-Shelfmark is built around four ideas:
+## The problem
 
-- **One part, one identity.** An internal part number per real part, with as
-  many supplier SKUs, manufacturer part numbers and packaging variants as it
-  needs. Substitutions point at parts, not at order lines.
-- **BOMs are versioned documents.** A board revision has BOM lines; lines
-  reference parts, never offers. Importing a new BOM produces a diff, not a
-  silent overwrite.
-- **Commodity substitution is a contract, not a note.** Resistors and
-  capacitors declare a parametric slot — package, value, tolerance, dielectric —
-  so a shortage can be resolved by anything that fits, and the reasoning is
-  recorded rather than remembered.
-- **Location is free text.** Real shelves are not a taxonomy. A stock item
-  carries whatever string describes where it lives, and moves are history.
+Small-batch electronics has four tools that do not talk to each other.
 
-## Status and roadmap
+| Where it lives | What it knows | What it cannot tell you |
+| --- | --- | --- |
+| KiCad | What the board needs | Whether any of it is in the drawer |
+| The drawers | What you own, roughly | Which MPN, which value, how many |
+| The distributor's site | Price and stock, for them | What you already paid, or own |
+| The pick-and-place | Where the parts go | Which parts you actually have |
 
-| Milestone | Contents |
+The join between them is a spreadsheet that somebody updates after a build, if they remember.
+Then a BOM revision lands, and nobody can say whether the last three boards consumed enough
+resistors to matter.
+
+Shelfmark is that spreadsheet, with a ledger underneath it.
+
+## What it does
+
+**Parts with one identity.** Every part gets an internal part number (`SK-00042` by default). The
+MPN, manufacturer, package, datasheet and images hang off it, and any number of supplier part
+numbers point at it. Manufacturer part numbers are normalised, so `RC0402FR-0710KL` and
+`rc0402fr-0710kl ` are the same part.
+
+**Supplier offers and price breaks.** Record what a distributor charges at each quantity, or
+refresh it from DigiKey's Product Information API when credentials are configured, against a daily
+call budget so a refresh loop cannot burn the quota. Money is stored as integer micro-dollars; no
+floating-point pennies.
+
+**BOM import from KiCad.** Drop in the CSV export. Headers are matched by alias (`Ref` /
+`Reference` / `Designator`, and so on), DNP lines are respected, references are expanded, and every
+line is matched to a part by manufacturer part number. A new revision produces a **diff** against
+the previous one: added, removed, changed quantity, changed part. Unmatched and ambiguous lines are
+shown as such, with a resolve action, rather than being quietly dropped.
+
+**Labels instead of typing.** Photograph a DigiKey or Mouser bag and Shelfmark reads the Data
+Matrix and the linear codes. It finds or creates the part, pulls the MPN, quantity, lot, date code,
+country and purchase order off the label, and records the receipt. Mouser labels that carry no
+manufacturer part number in the 2D symbol are recovered from the linear code; a label whose 2D code
+will not read at all is still prefilled from the bars, and nothing is written until you confirm.
+
+**A stock ledger, not a number.** Every quantity change is a recorded move — receive, consume,
+scrap, adjust, move, build — with an actor, a note and a resulting balance. Quantity is derived from
+the moves and can never go negative. Correcting a mistake means recording a correction, which is
+what you want six months later.
+
+**Substitutes that are a claim about the board.** Link a part to an equivalent, a form-fit
+alternative, or a different part entirely, with a note that says why. Form-fit links require a note.
+Suggestions are drawn from the same package and value, so a reel of 10 k 0402 can stand in for
+another, and the revision page shows which substitutes would cover a shortage and which would not.
+
+**Builds.** Plan N boards against a revision and see, line by line, what is short and what could
+cover it. Commit the build and stock is consumed atomically: if any line is short, nothing is
+written and the message names the line, the required quantity and the shortfall. A committed build
+is immutable.
+
+**The OpenPnP handoff.** Download a pick list (part, MPN, package, quantity, bin, substitutes) and
+an OpenPnP board file built from a KiCad position export: one placement per reference, with real
+coordinates, part IDs and rotation, plus a job file that names the board once. It removes the
+copying of coordinates by hand.
+
+**Access that suits a bench.** Three roles — viewer, engineer, admin. Humans log in with a
+password and a session; machines use API keys. On first run, if no account exists, the app sends
+you to a setup page to create the first admin.
+
+## Why this rather than something else
+
+**A spreadsheet** is free and infinitely flexible, and for fifty parts in a drawer it may be
+enough. It cannot enforce a ledger, cannot match a BOM to stock, and breaks the moment two people
+edit it. Shelfmark is the same idea with the arithmetic done for you.
+
+**InvenTree or PartKeepr** are general parts databases with purchase orders, multi-warehouse
+support and a wider inventory model. If you need those things, use them. Shelfmark is deliberately
+narrower: it assumes one bench, one person or a small team, parts arriving in bags from two
+distributors, and boards coming out of KiCad. That narrowness is why a BOM revision, a scanned bag
+and a pick-and-place job are three clicks apart instead of three integrations.
+
+**Distributor BOM tools** price a design. They do not know what is already in your drawers, what
+you paid last time, or that a substitute arrived in a different package.
+
+**One container, one file.** SQLite, no external services, no queue, no Redis, no Postgres. Back up
+by copying `/data`. The container runs read-only with a single writable volume, as a non-root user.
+
+## Status
+
+Working and in daily use on a real project. 241 tests at 84% coverage, ruff, ruff-format, mypy,
+bandit and pip-audit clean on Python 3.11 and 3.12. CI gates all of it, builds and publishes the
+image.
+
+| Area | State |
 | --- | --- |
-| M0 | Skeleton, config, migrations, health check — **done** |
-| M1 | Parts, internal part numbers, MPN normalisation — **done** |
-| M1.5 | API keys for machines — **done** |
-| M1.6 | Username/password logins and sessions — **done** |
-| M1.7 | Part pages: links, package, hosted datasheets and images — **done** |
-| M1.8 | Datasheets and images a person can upload — **done** |
-| M2 | Supplier offers (DigiKey first) with recorded fixtures |
-| M3 | BOM ingest, parameter extraction, revisions, diff |
-| M4 | Commodity slots and deterministic substitution |
-| M5 | Stock items, locations, movement ledger |
-| M6 | Builds, shortages, cost roll-up, OpenPnP job package |
-| M7 | Export/restore, nightly refresh, multi-arch image |
+| Parts, IPNs, MPN normalisation, datasheets, images | done |
+| Users, sessions, API keys, roles, rate limiting | done |
+| Supplier offers, price breaks, DigiKey refresh | done |
+| BOM import, matching, revisions, diff | done |
+| Stock ledger, locations, moves | done |
+| Label scanning (DigiKey, Mouser) and receipt | done |
+| Substitutions and shortfall coverage | done |
+| Builds, atomic commit, OpenPnP export | done |
+| Export/restore, nightly refresh, multi-arch image | next |
+
+### What it does not do yet
+
+No serial-number or lot traceability beyond the lot text on a scanned bag. No purchase orders
+beyond storing the PO number from a label. No multi-tenant or multi-warehouse model. The OpenPnP
+board file references parts by internal part number; OpenPnP still needs its own part definitions
+for nozzle and feeder setup, which the pick list is there to help you create.
 
 ## Running it
 
-Development:
-
-```bash
-uv venv
-uv pip install -e ".[dev]"
-uvicorn app.main:app --port 8080
-curl localhost:8080/api/health
-```
-
-Container (single image, single process, no external services):
+### Container
 
 ```bash
 docker compose up --build
 ```
 
-Tests:
+Then open <http://localhost:8080>. With no accounts yet, you are sent to `/setup` to create the
+first administrator.
+
+Data lives in the `shelfmark-data` volume (`/data` inside the container): the SQLite database and
+the asset directory. That volume is the whole backup.
+
+### Development
 
 ```bash
-pytest -q
+uv venv
+uv pip install -e ".[dev]"
+uvicorn app.main:app --port 8080
+```
+
+### Checks
+
+```bash
+ruff check app tests
+ruff format --check app tests
+mypy app
+pytest -q --cov=app --cov-report=term-missing --cov-fail-under=83
+bandit -q -c pyproject.toml -r app -ll
+pip-audit
+```
+
+The coverage gate fails the build below 83%; the suite sits at 84%, and the number ratchets up
+rather than down. `bandit`'s three skips are documented in `pyproject.toml`.
+
+### Break-glass CLI
+
+The container ships a CLI for the cases the web UI cannot reach — creating an admin when nobody
+can log in, revoking a key, importing a BOM in a script:
+
+```bash
+shelfmark key create --name ci --role engineer
+shelfmark user create sydney --role admin
+shelfmark build plan 2 --boards 10
 ```
 
 ## Configuration
 
-Everything comes from the environment, prefixed `SHELFMARK_`:
+Everything comes from the environment, prefixed `SHELFMARK_`. The defaults are sensible for a
+single-user install.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `SHELFMARK_DATA_DIR` | `./data` | Directory holding the SQLite database and job packages |
+| `SHELFMARK_DATA_DIR` | `./data` | SQLite database and job packages |
+| `SHELFMARK_ASSET_DIR` | `/data/assets` | Hosted datasheets and images |
 | `SHELFMARK_LISTEN_PORT` | `8080` | Listen port |
+| `SHELFMARK_HOST` | `0.0.0.0` | Listen address |
 | `SHELFMARK_LOG_LEVEL` | `info` | Log verbosity |
+| `SHELFMARK_IPN_PREFIX` | `SK` | Prefix for generated internal part numbers |
+| `SHELFMARK_AUTH` | `on` | `none` disables auth; refused when `SHELFMARK_ENV=production` |
+| `SHELFMARK_ENV` | `development` | Environment name |
+| `SHELFMARK_RATE_LIMIT` | `600` | Requests per minute per API key, `0` disables |
+| `SHELFMARK_BOOTSTRAP_KEY` | *(generated)* | First admin key on an empty key table |
+| `SHELFMARK_DIGIKEY_CLIENT_ID` | *(unset)* | DigiKey API v4 client id; enrichment stays queued without it |
+| `SHELFMARK_DIGIKEY_CLIENT_SECRET` | *(unset)* | DigiKey API v4 client secret |
+| `SHELFMARK_DIGIKEY_DAILY_BUDGET` | `1000` | Daily DigiKey product lookups |
+| `SHELFMARK_QUEUE_TICK_SECONDS` | `900` | How often the app drains the enrichment queue; `0` disables |
 
-The container runs read-only with a single writable volume at `/data`, as a
-non-root user, with a health check baked into the image.
+## Documentation
+
+- [User guide](docs/USER-GUIDE.md) — deploying, the first hour, and every screen explained
+- [API reference](docs/API.md) — every route, its role and its response
+- [CLI reference](docs/CLI.md) — every command the container ships
+- [Design notes](docs/) — the milestone documents, including the decisions and the things that
+  went wrong on the way
 
 ## Licence
 

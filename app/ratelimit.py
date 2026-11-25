@@ -40,3 +40,14 @@ def reset(bucket: str) -> None:
     """
     with _LOCK:
         _WINDOWS.pop(bucket, None)
+
+
+def reset_all() -> None:
+    """Forget every bucket.
+
+    The window map is process-global, so a test suite that logs in on every case
+    would otherwise exhaust the shared IP bucket and start failing on 429 for
+    reasons unrelated to what it asserts.
+    """
+    with _LOCK:
+        _WINDOWS.clear()

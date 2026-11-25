@@ -21,9 +21,10 @@ def reset_db():
     alone: each test creates its own unique keys and never relies on an empty
     ``api_key`` table.
     """
-    from app import db
+    from app import db, ratelimit
     from app.config import settings
 
+    ratelimit.reset_all()
     db.migrate()
     conn = db.connect()
     try:
