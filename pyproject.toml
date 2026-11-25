@@ -23,6 +23,15 @@ dev = ["pytest>=8", "httpx>=0.27", "ruff>=0.6", "mypy>=1.11"]
 [project.scripts]
 shelfmark = "app.cli:main"
 
+[tool.setuptools.packages.find]
+# Without this, setuptools' flat-layout auto-discovery shipped only app/*.py:
+# the image had no app.repo, so the console script died on import while the
+# server kept working off the source tree in /app.
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["templates/*.html", "templates/**/*.html", "static/*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
@@ -42,5 +51,3 @@ python_version = "3.11"
 warn_unused_ignores = true
 ignore_missing_imports = true
 
-[tool.setuptools]
-packages = ["app"]

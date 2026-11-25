@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Stock · Shelfmark{% endblock %}
+{% block content %}
+<h1>Stock</h1>
+
+<div class="toolbar">
+  <form method="get" action="/stock" class="search">
+    <input type="search" name="q" value="{{ q }}" placeholder="IPN, MPN, manufacturer, location" aria-label="Search stock">
+    <input type="search" name="location" value="{{ location }}" list="locations" placeholder="Location">
+    <label class="below">Below
+      <input type="number" name="below" value="{{ below }}" min="0" inputmode="numeric" placeholder="N" aria-label="Below quantity">
+    </label>
+    <button type="submit" class="primary">Filter</button>
+  </form>
+</div>
+
+<datalist id="locations">
+  {% for loc in locations %}
+  <option value="{{ loc.location }}"></option>
+  {% endfor %}
+</datalist>
+
+{% if current_user.role in ('engineer', 'admin') %}
+<section class="scan-panel" id="scan">
+  <h2>Scan label</h2>
+  <p class="muted">Photograph the DigiKey label so it fills the frame.</p>
+  {% if scan_error %}<div class="error" role="alert">{{ scan_error }}</div>{% endif %}
+  <form class="scan-form" method="post" action="/stock/scan" enctype="multipart/form-data">
+    <label>Label photo
+      <input type="file" name="file" accept="image/*" capture="environment" required>
+    </label>
+    <button type="submit" class="primary">Decode</button>
+  </form>
+
+  {% if scan %}
+    {% set label = scan.label %}
+    {% set res = scan.resolution %}
+    <form class="stock-form" method="post" action="/stock/label-receive">
+      <dl class="part-fields">
+        {% for name, value in [
+          ('Supplier P/N', label.distributor_pn), ('MPN', label.mpn),
+          ('Manufacturer', label.manufacturer),
+          ('Description', label.description), ('Quantity', label.quantity),
+          ('Lot', label.lot), ('Date code', label.date_code),
+          ('Country', label.country)
+        ] %}
+          {% if value %}<dt>{{ name }}</dt><dd>{{ value }}</dd>{% endif %}
+        {% endfor %}
+      </dl>
+      {% if res.part %}
+        <p>Matched <a class="ipn" href="/parts/{{ res.part.ipn }}">{{ res.part.ipn }}</a>
+          — {{ res.part.mpn }}<span class="muted"> ({{ res.matched_by }})</span></p>
+        {% if res.stock %}
+          <p class="muted">On hand: {{ res.stock|sum(attribute='quantity') }}</p>
+        {% endif %}
+        <input type="hidden" name="ipn" value="{{ res.part.ipn }}">
+      {% else %}
+        <p class="muted">Not in the catalogue yet — confirming will create it.</p>
+        <label>Manufacturer
+          <input type="text" name="manufacturer" value="{{ label.manufacturer or '' }}"
+                 placeholder="e.g. Texas Instruments" required>
+        </label>
+      {% endif %}
+      <input type="hidden" name="mpn" value="{{ label.mpn or '' }}">
+      <input type="hidden" name="description" value="{{ label.description or '' }}">
+      <input type="hidden" name="distributor_pn" value="{{ label.distributor_pn or '' }}">
+      <input type="hidden" name="lot" value="{{ label.lot or '' }}">
+      <input type="hidden" name="date_code" value="{{ label.date_code or '' }}">
+      <label>Location
+        <input type="text" name="location" list="locations"
+               value="{{ res.suggested_location or '' }}" required>
+      </label>
+      <label>Quantity
+        <input type="number" name="quantity" min="1" inputmode="numeric"
+               value="{{ label.quantity or 1 }}" required>
+      </label>
+      <label>Note
+        <input type="text" name="note" placeholder="Optional">
+      </label>
+      <div class="stock-buttons">
+        <button type="submit" class="primary">Confirm receipt</button>
+      </div>
+    </form>
+  {% endif %}
+</section>
+{% endif %}
+
+{% if groups %}
+  {% for group in groups %}
+  <section class="stock-group">
+    <h2>{{ group.location }} <span class="muted">({{ group.total }} on hand)</span></h2>
+    <table class="parts-table stock-table">
+      <thead>
+        <tr><th>IPN</th><th>MPN</th><th>Manufacturer</th><th>Qty</th></tr>
+      </thead>
+      <tbody>
+        {% for row in group.rows %}
+        <tr>
+          <td><span class="label">IPN</span><a class="ipn" href="/parts/{{ row.ipn }}">{{ row.ipn }}</a></td>
+          <td><span class="label">MPN</span>{{ row.mpn }}</td>
+          <td><span class="label">Manufacturer</span>{{ row.manufacturer }}</td>
+          <td><span class="label">Qty</span>{{ row.quantity }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  {% endfor %}
+{% else %}
+<div class="empty">
+  <p>No stock matches your filters.</p>
+</div>
+{% endif %}
+{% endblock %}

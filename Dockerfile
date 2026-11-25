@@ -7,7 +7,13 @@ WORKDIR /app
 COPY pyproject.toml ./
 COPY app ./app
 COPY migrations ./migrations
-RUN pip install --no-cache-dir .
+# The console script is the break-glass path when nobody can log in, so fail the
+# build if it cannot import. A flat `packages = ["app"]` shipped app/*.py without
+# app/repo for several releases: the server worked off /app while `shelfmark`
+# died with ModuleNotFoundError.
+RUN pip install --no-cache-dir . \
+ && python -c "import app.repo, app.web" \
+ && shelfmark --help > /dev/null
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin shelfmark \
  && mkdir -p /data && chown shelfmark:shelfmark /data
