@@ -312,3 +312,25 @@ def test_failed_datasheet_records_failure_without_raising(monkeypatch):
     assert assets[0]["status"] == "failed"
     assert "text/html" in assets[0]["error"]
     assert job["status"] == "done"
+
+
+def test_retries_stop_after_the_cap():
+    from app import db
+    from app.repo import catalog
+    from app.repo import parts as repo
+
+    db.migrate()
+    conn = db.connect()
+    part = repo.create_part(conn, mpn="STALL-1", manufacturer="Nobody")
+    catalog.queue_job(conn, int(part["id"]))
+    job_id = int(catalog.latest_job(conn, int(part["id"]))["id"])
+
+    enrich._retry_or_give_up(conn, job_id, 1, "read failed")
+    assert catalog.latest_job(conn, int(part["id"]))["status"] == "queued"
+
+    enrich._retry_or_give_up(conn, job_id, enrich.MAX_ATTEMPTS, "read failed")
+    final = catalog.latest_job(conn, int(part["id"]))
+    conn.close()
+
+    assert final["status"] == "failed"
+    assert "gave up after" in final["last_error"]

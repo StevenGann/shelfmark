@@ -37,6 +37,7 @@ DATASHEET_MAX_BYTES = 20 * 1024 * 1024
 IMAGE_MAX_BYTES = 5 * 1024 * 1024
 DOWNLOAD_CHUNK = 64 * 1024
 
+MAX_ATTEMPTS = 5
 RETRY_BASE_SECONDS = 60
 RETRY_MAX_SECONDS = 6 * 3600
 CREDENTIALS_RETRY_SECONDS = 300
@@ -463,6 +464,19 @@ def _later(seconds: int) -> str:
     return (datetime.now(UTC) + timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _retry_or_give_up(conn: sqlite3.Connection, job_id: int, attempts: int, message: str) -> None:
+    """Retry with backoff, but stop retrying a part that has never worked.
+
+    Without a cap, one host that always stalls is retried forever and holds a
+    slot in every queue drain. Environment problems (credentials, budget) do
+    not pass through here: they are not the part's fault.
+    """
+    if attempts >= MAX_ATTEMPTS:
+        catalog.mark_failed(conn, job_id, f"gave up after {attempts} attempts: {message}")
+        return
+    catalog.mark_retry(conn, job_id, message, _later(_backoff_seconds(attempts)))
+
+
 def _next_day() -> str:
     return (
         (datetime.now(UTC) + timedelta(days=1))
@@ -487,14 +501,9 @@ def run_queue(conn: sqlite3.Connection) -> int:
         except CatalogueMiss as error:
             catalog.mark_failed(conn, int(job["id"]), str(error))
         except TransientError as error:
-            catalog.mark_retry(conn, int(job["id"]), str(error), _later(_backoff_seconds(attempts)))
+            _retry_or_give_up(conn, int(job["id"]), attempts, str(error))
         except Exception as error:  # noqa: BLE001 - the queue must never die on one part
-            catalog.mark_retry(
-                conn,
-                int(job["id"]),
-                f"unexpected error: {error}",
-                _later(_backoff_seconds(attempts)),
-            )
+            _retry_or_give_up(conn, int(job["id"]), attempts, f"unexpected error: {error}")
         else:
             catalog.mark_done(conn, int(job["id"]))
     return processed
