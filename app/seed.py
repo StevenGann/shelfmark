@@ -17,16 +17,27 @@ import argparse
 import csv
 import json
 import sys
-from typing import TextIO
+from typing import TextIO, TypedDict
 
 from . import db
 from .mpn import normalise_mpn
 from .repo import parts as repo
 from .repo.parts import DuplicatePartError
 
+
 # Description-driven categorisation. Crude on purpose: it only has to be better
 # than an empty column for a test data set, and the real category comes from the
 # commodity contract at ingest time.
+class SeedRow(TypedDict):
+    """Exactly the keyword arguments `create_part` accepts for a seed row."""
+
+    mpn: str
+    manufacturer: str
+    description: str | None
+    category: str | None
+    notes: str | None
+
+
 _CATEGORY_HINTS = (
     ("MLCC", "capacitor"),
     ("CAPACITOR", "capacitor"),
@@ -54,9 +65,9 @@ def categorise(description: str) -> str | None:
     return None
 
 
-def rows_from(stream: TextIO, fmt: str) -> list[dict[str, str]]:
+def rows_from(stream: TextIO, fmt: str) -> list[dict[str, str | None]]:
     reader = csv.DictReader(stream)
-    out: list[dict[str, str]] = []
+    out: list[dict[str, str | None]] = []
     for raw in reader:
         if fmt == "kicad":
             mpn = (raw.get("Manufacturer_Part_Number") or "").strip()
@@ -88,18 +99,30 @@ def rows_from(stream: TextIO, fmt: str) -> list[dict[str, str]]:
     return out
 
 
-def seed(rows: list[dict[str, str]]) -> dict[str, int]:
+def seed(rows: list[dict[str, str | None]]) -> dict[str, int]:
     created = skipped = failed = 0
     conn = db.connect()
     try:
         for row in rows:
+            mpn = row.get("mpn")
+            manufacturer = row.get("manufacturer")
+            if mpn is None or manufacturer is None:
+                failed += 1
+                continue
             try:
-                normalise_mpn(row["mpn"])
+                normalise_mpn(mpn)
             except ValueError:
                 failed += 1
                 continue
             try:
-                repo.create_part(conn, **row)
+                repo.create_part(
+                    conn,
+                    mpn=mpn,
+                    manufacturer=manufacturer,
+                    description=row.get("description"),
+                    category=row.get("category"),
+                    notes=row.get("notes"),
+                )
                 created += 1
             except DuplicatePartError:
                 skipped += 1
