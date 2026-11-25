@@ -3,10 +3,9 @@ import io
 from app import db
 from app.seed import categorise, rows_from, seed
 
-
 KICAD = (
     "Reference,Qty,Value,DNP,Manufacturer_Name,Manufacturer_Part_Number,Description\n"
-    '\"C201,C202\",2,2.2uF,,Murata Electronics,GRM155Z71A225KE44D,'
+    '"C201,C202",2,2.2uF,,Murata Electronics,GRM155Z71A225KE44D,'
     '"MLCC - SMD/SMT 2.2 uF 10 VDC 0402 X7R"\n'
     'R1,1,4k7,,Yageo,RC0402JR-7D4K7L,"RES 4.7K OHM 0402"\n'
     ",,,,,,\n"
