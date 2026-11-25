@@ -65,7 +65,7 @@ async def decode_label(request: Request, conn: Conn, key: EngineerKey) -> dict:
         payloads, chosen = labels.decode(data)
     except labels.LabelError as exc:
         raise _label_error(exc) from None
-    parsed = labels.parse_label(chosen)
+    parsed = labels.parse_label(chosen, payloads)
     return {
         "payloads": payloads,
         "label": parsed,
@@ -84,10 +84,10 @@ async def receive_label(request: Request, conn: Conn, key: EngineerKey) -> dict:
     except labels.LabelError as exc:
         raise _label_error(exc) from None
     try:
-        _payloads, chosen = labels.decode(data)
+        payloads, chosen = labels.decode(data)
     except labels.LabelError as exc:
         raise _label_error(exc) from None
-    parsed = labels.parse_label(chosen)
+    parsed = labels.parse_label(chosen, payloads)
     resolution = labels.resolve_label(conn, parsed)
     part = resolution["part"]
 

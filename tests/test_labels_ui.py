@@ -84,7 +84,7 @@ def test_confirming_a_known_label_receives_stock_at_the_suggested_location(user_
         data={
             "ipn": part["ipn"],
             "mpn": "OPA211AIDRGR",
-            "digikey_pn": "296-OPA211AIDRGRCT-ND",
+            "distributor_pn": "296-OPA211AIDRGRCT-ND",
             "lot": "5397196ML5",
             "date_code": "2524+5",
             "location": "Drawer A",
@@ -113,7 +113,7 @@ def test_unknown_label_creates_the_part_and_links_its_digikey_number(user_client
         data={
             "mpn": "OPA211AIDRGR",
             "description": "CAN AND THERMOMETER",
-            "digikey_pn": "296-OPA211AIDRGRCT-ND",
+            "distributor_pn": "296-OPA211AIDRGRCT-ND",
             "lot": "5397196ML5",
             "date_code": "2524+5",
             "manufacturer": "Texas Instruments",

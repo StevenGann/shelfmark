@@ -15,6 +15,7 @@ back to an unknown-part create form. Nothing here writes to the database except
 from __future__ import annotations
 
 import io
+import re
 import sqlite3
 from datetime import UTC, datetime
 from typing import Any
@@ -26,6 +27,7 @@ from .mpn import normalise_mpn
 from .repo import catalog
 from .repo import parts as parts_repo
 from .repo import stock as stock_repo
+from .repo.catalog import normalise_name
 
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
@@ -51,6 +53,7 @@ _FORMATS = zxingcpp.BarcodeFormats(
 # DigiKey-specific and preserved in ``fields`` rather than dropped.
 _MH10_IDS = (
     "30P",
+    "14K",
     "10K",
     "11K",
     "11Z",
@@ -60,12 +63,21 @@ _MH10_IDS = (
     "06",
     "1P",
     "1T",
+    "1V",
     "1K",
     "4L",
     "9D",
     "Q",
     "K",
+    "P",
 )
+
+# Named AIs that become first-class fields rather than landing in ``fields``.
+_NAMED_IDS = {"30P", "06", "1P", "1V", "K", "Q", "9D", "1T", "4L", "10K"}
+
+# DigiKey part numbers end in one of these; Mouser's do not. Used to tell a
+# supplier part number from a manufacturer part number when a label omits ``1P``.
+_DIGIKEY_SUFFIXES = ("-ND", "-CT", "-TR", "-DKR")
 
 
 class LabelError(Exception):
@@ -111,6 +123,24 @@ def _payload_text(result: zxingcpp.Barcode) -> str:
     else:
         raw = str(result.text).encode("latin-1", "replace")
     return raw.decode("latin-1")
+
+
+def _supplier_pn(text: str) -> tuple[str, str] | None:
+    """Split a Code 128 payload into ``(supplier_pn, derived_mpn)``.
+
+    Mouser prints ``<3-digit mfr id>-<manufacturer part number>`` in the linear
+    code and, on some labels, omits the MPN from the Data Matrix entirely. A
+    DigiKey part number has the same shape but carries a packaging suffix, so
+    those are rejected: stripping three digits off ``296-OPA211AIDRGRCT-ND``
+    would invent a part number that does not exist.
+    """
+    text = text.strip()
+    match = re.match(r"^(\d{3})-([A-Za-z0-9].*)$", text)
+    if match is None:
+        return None
+    if any(text.upper().endswith(suffix) for suffix in _DIGIKEY_SUFFIXES):
+        return None
+    return text, match.group(2)
 
 
 def _looks_like_digikey_pn(text: str) -> bool:
@@ -174,7 +204,9 @@ def _split_mh10(raw: str) -> dict[str, str]:
     body = body.lstrip("\x1e")
     fields: dict[str, str] = {}
     for token in body.split("\x1d"):
-        token = token.strip()
+        # A real label ends the message with RS + EOT, which would otherwise
+        # ride along on the last field's value.
+        token = token.strip().strip("\x1e\x04").strip()
         if not token:
             continue
         for ai in _MH10_IDS:
@@ -191,16 +223,18 @@ def _to_int(value: str) -> int | None:
         return None
 
 
-def parse_label(raw: str) -> dict:
-    """Parse a decoded payload into the label dict from the spec.
+def parse_label(raw: str, extras: list[str] | None = None) -> dict:
+    """Parse a decoded payload into the label dict.
 
-    MH10.8.2 payloads are mapped to named fields; a bare payload (a Code 128
-    DigiKey part number) resolves by part number alone. Unknown AIs are kept in
-    ``fields``.
+    MH10.8.2 payloads map to named fields. ``extras`` are the other symbols read
+    from the same photo: Mouser omits ``1P`` on some labels, so the manufacturer
+    part number is recovered from the linear ``<mfr id>-<mpn>`` code when the
+    2D symbol does not carry one. Unknown AIs are preserved in ``fields``.
     """
     result: dict = {
-        "digikey_pn": None,
+        "distributor_pn": None,
         "mpn": None,
+        "manufacturer": None,
         "description": None,
         "quantity": None,
         "lot": None,
@@ -213,16 +247,18 @@ def parse_label(raw: str) -> dict:
     stripped = raw.strip()
     if not stripped.startswith("[)>"):
         if stripped:
-            result["digikey_pn"] = stripped
+            result["distributor_pn"] = stripped
         return result
 
     fields = _split_mh10(stripped)
     if "30P" in fields:
-        result["digikey_pn"] = fields["30P"]
-    elif "06" in fields:
-        result["digikey_pn"] = fields["06"].removeprefix("P")
+        result["distributor_pn"] = fields["30P"]
+    elif "06" in fields and fields["06"]:
+        result["distributor_pn"] = fields["06"].removeprefix("P")
     if "1P" in fields:
         result["mpn"] = fields["1P"]
+    if "1V" in fields:
+        result["manufacturer"] = fields["1V"].strip()
     if "K" in fields:
         result["description"] = fields["K"]
     if "Q" in fields:
@@ -235,19 +271,30 @@ def parse_label(raw: str) -> dict:
         result["country"] = fields["4L"]
     if "10K" in fields:
         result["purchase_order"] = fields["10K"]
+
+    # Fill the gaps from the linear codes when the 2D symbol is incomplete.
+    for payload in extras or []:
+        split = _supplier_pn(payload)
+        if split is None:
+            continue
+        supplier_pn, derived_mpn = split
+        if result["distributor_pn"] is None:
+            result["distributor_pn"] = supplier_pn
+        if result["mpn"] is None:
+            result["mpn"] = derived_mpn
+
     for ai, value in fields.items():
-        if ai not in {"30P", "06", "1P", "K", "Q", "9D", "1T", "4L", "10K"}:
+        if ai not in _NAMED_IDS:
             result["fields"][ai] = value
     return result
 
 
-def _part_by_digikey_pn(conn: sqlite3.Connection, digikey_pn: str) -> dict | None:
+def _part_by_distributor_pn(conn: sqlite3.Connection, distributor_pn: str) -> dict | None:
     row = conn.execute(
         "SELECT p.id FROM part_link pl "
-        "JOIN distributor d ON d.id = pl.distributor_id "
         "JOIN part p ON p.id = pl.part_id "
-        "WHERE d.name_norm = 'digikey' AND pl.sku = ? ORDER BY pl.id LIMIT 1",
-        (digikey_pn,),
+        "WHERE pl.sku = ? ORDER BY pl.id LIMIT 1",
+        (distributor_pn,),
     ).fetchone()
     if row is None:
         return None
@@ -278,14 +325,14 @@ def resolve_label(conn: sqlite3.Connection, parsed: dict) -> dict:
     Resolution is by DigiKey part number first (``part_link.sku`` on the DigiKey
     distributor), then by MPN (exactly one part or none), then unknown.
     """
-    digikey_pn = parsed.get("digikey_pn")
+    distributor_pn = parsed.get("distributor_pn")
     mpn = parsed.get("mpn")
     part: dict | None = None
     matched_by: str | None = None
-    if digikey_pn:
-        part = _part_by_digikey_pn(conn, digikey_pn)
+    if distributor_pn:
+        part = _part_by_distributor_pn(conn, distributor_pn)
         if part is not None:
-            matched_by = "digikey_pn"
+            matched_by = "distributor_pn"
     if part is None and mpn:
         part = _part_by_mpn(conn, mpn)
         if part is not None:
@@ -317,26 +364,38 @@ def lot_note(parsed: dict) -> str | None:
     return ", ".join(pieces) or None
 
 
-def _store_digikey_link(conn: sqlite3.Connection, part_id: int, digikey_pn: str) -> None:
-    digikey = catalog.get_distributor_by_name_norm(conn, "digikey")
-    url = f"https://www.digikey.com/en/products/result?keywords={digikey_pn}"
-    if digikey and digikey["search_url_template"]:
-        url = digikey["search_url_template"].replace("{mpn}", digikey_pn)
+def _store_distributor_link(
+    conn: sqlite3.Connection,
+    part_id: int,
+    supplier: str | None,
+    sku: str,
+) -> None:
+    """Record a supplier part number so the next scan of this bag resolves.
+
+    The distributor is matched by name; an unknown supplier falls back to
+    DigiKey's row only when the part number looks like DigiKey's, otherwise the
+    link is stored without a distributor rather than under the wrong one.
+    """
+    name_norm = normalise_name(supplier) if supplier else None
+    distributor = catalog.get_distributor_by_name_norm(conn, name_norm) if name_norm else None
+    url = f"https://www.digikey.com/en/products/result?keywords={sku}"
+    if distributor and distributor["search_url_template"]:
+        url = str(distributor["search_url_template"]).replace("{mpn}", sku)
     catalog.add_part_link(
         conn,
         part_id,
         kind="distributor",
-        label="DigiKey",
+        label=(distributor["name"] if distributor else (supplier or "Supplier")),
         url=url,
-        distributor_id=int(digikey["id"]) if digikey else None,
-        sku=digikey_pn,
+        distributor_id=int(distributor["id"]) if distributor else None,
+        sku=sku,
         source="label",
         fetched_at=_utc_now(),
     )
 
 
 def create_part_from_label(conn: sqlite3.Connection, parsed: dict, manufacturer: str) -> dict:
-    """Create a part from a scan and store the DigiKey PN as a distributor link."""
+    """Create a part from a scan and record its supplier part number."""
     mpn = (parsed.get("mpn") or "").strip()
     if not mpn:
         raise ValueError("The label has no manufacturer part number to create.")
@@ -346,9 +405,14 @@ def create_part_from_label(conn: sqlite3.Connection, parsed: dict, manufacturer:
         manufacturer=manufacturer,
         description=parsed.get("description"),
     )
-    digikey_pn = parsed.get("digikey_pn")
-    if digikey_pn:
-        _store_digikey_link(conn, int(part["id"]), digikey_pn)
+    distributor_pn = parsed.get("distributor_pn")
+    if distributor_pn:
+        _store_distributor_link(
+            conn,
+            int(part["id"]),
+            parsed.get("supplier") or parsed.get("manufacturer"),
+            distributor_pn,
+        )
     return part
 
 

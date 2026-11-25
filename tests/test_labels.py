@@ -58,7 +58,7 @@ def _make_part_with_digikey_link(mpn, manufacturer, sku):
 def test_full_mh10_datamatrix_parses_to_every_field():
     _payloads, chosen = labels.decode(_png(MH10_PAYLOAD, zxingcpp.BarcodeFormat.DataMatrix))
     parsed = labels.parse_label(chosen)
-    assert parsed["digikey_pn"] == "296-OPA211AIDRGRCT-ND"
+    assert parsed["distributor_pn"] == "296-OPA211AIDRGRCT-ND"
     assert parsed["mpn"] == "OPA211AIDRGR"
     assert parsed["description"] == "CAN AND THERMOMETER"
     assert parsed["quantity"] == 25
@@ -76,13 +76,13 @@ def test_code128_digikey_pn_resolves_by_part_number():
     part = _make_part_with_digikey_link("OPA211AIDRGR", "Texas Instruments", pn)
     _payloads, chosen = labels.decode(_png(pn, zxingcpp.BarcodeFormat.Code128))
     parsed = labels.parse_label(chosen)
-    assert parsed["digikey_pn"] == pn
+    assert parsed["distributor_pn"] == pn
 
     conn = db.connect()
     try:
         resolution = labels.resolve_label(conn, parsed)
         assert resolution["status"] == "matched"
-        assert resolution["matched_by"] == "digikey_pn"
+        assert resolution["matched_by"] == "distributor_pn"
         assert resolution["part"]["ipn"] == part["ipn"]
     finally:
         conn.close()
@@ -113,7 +113,7 @@ def test_known_mpn_resolves_when_pn_absent():
     part = _make_part()
     conn = db.connect()
     try:
-        resolution = labels.resolve_label(conn, {"digikey_pn": None, "mpn": part["mpn"]})
+        resolution = labels.resolve_label(conn, {"distributor_pn": None, "mpn": part["mpn"]})
         assert resolution["status"] == "matched"
         assert resolution["matched_by"] == "mpn"
         assert resolution["part"]["ipn"] == part["ipn"]
@@ -200,7 +200,7 @@ def test_suggested_location_is_last_receive_location():
         pid = int(part["id"])
         stock_repo.record_move(conn, pid, "Drawer A", "receive", 5, None, "tester")
         stock_repo.record_move(conn, pid, "Drawer B", "receive", 3, None, "tester")
-        resolution = labels.resolve_label(conn, {"digikey_pn": None, "mpn": part["mpn"]})
+        resolution = labels.resolve_label(conn, {"distributor_pn": None, "mpn": part["mpn"]})
         assert resolution["suggested_location"] == "Drawer B"
     finally:
         conn.close()
@@ -220,3 +220,73 @@ def test_viewer_gets_403_on_both_endpoints(anon_client, make_key):
             headers={"X-API-Key": key},
         )
         assert r.status_code == 403
+
+
+MOUSER_TMP118 = (
+    '[)>\x1e06\x1dKQUAD ADC, THERM,R"\x1d14K003\x1d1PTMP118MBIYMSR\x1dQ20'
+    "\x1d11K091050594\x1d4LCN\x1d1VTI\x1e\x04"
+)
+
+# The KOA bag: the Data Matrix has no 1P at all, so the MPN only exists in the
+# linear code as Mouser's "<3-digit mfr id>-<mpn>".
+MOUSER_KOA = (
+    "[)>\x1e06\x1dKWO9593\x1d14K020\x1dP6-8,11,13-4,41-4,51-2\x1dQ160"
+    "\x1d11K087961310\x1d4LJP\x1d1VKOA Speer\x1e\x04"
+)
+
+
+def test_mouser_label_carries_the_manufacturer_and_quantity():
+    parsed = labels.parse_label(MOUSER_TMP118)
+
+    assert parsed["mpn"] == "TMP118MBIYMSR"
+    assert parsed["manufacturer"] == "TI"
+    assert parsed["quantity"] == 20
+    assert parsed["country"] == "CN"
+    assert parsed["description"] == 'QUAD ADC, THERM,R"'
+
+
+def test_mouser_label_without_an_mpn_field_uses_the_linear_code():
+    parsed = labels.parse_label(MOUSER_KOA, ["020", "660-RN73H1ETP1001F25", "087961310"])
+
+    assert parsed["mpn"] == "RN73H1ETP1001F25"
+    assert parsed["distributor_pn"] == "660-RN73H1ETP1001F25"
+    assert parsed["quantity"] == 160
+    assert parsed["manufacturer"] == "KOA Speer"
+
+
+def test_a_digikey_part_number_is_not_mistaken_for_a_mouser_one():
+    """Both look like "<digits>-<part>"; only DigiKey adds a packaging suffix."""
+    parsed = labels.parse_label(MOUSER_KOA, ["296-OPA211AIDRGRCT-ND"])
+
+    assert parsed["mpn"] is None
+    assert parsed["distributor_pn"] is None
+
+
+def test_a_mouser_sku_resolves_a_part_by_its_supplier_number():
+    from app import db
+    from app.repo import catalog
+    from app.repo import parts as parts_repo
+
+    conn = db.connect()
+    try:
+        part = parts_repo.create_part(conn, mpn="RN73H1ETP1001F25", manufacturer="KOA Speer")
+        mouser = catalog.get_distributor_by_name_norm(conn, "mouser")
+        assert mouser is not None
+        catalog.add_part_link(
+            conn,
+            int(part["id"]),
+            kind="distributor",
+            label="Mouser",
+            url="https://www.mouser.com/c/?q=660-RN73H1ETP1001F25",
+            distributor_id=int(mouser["id"]),
+            sku="660-RN73H1ETP1001F25",
+            source="label",
+            fetched_at=None,
+        )
+        parsed = labels.parse_label(MOUSER_KOA, ["660-RN73H1ETP1001F25"])
+        resolution = labels.resolve_label(conn, parsed)
+    finally:
+        conn.close()
+
+    assert resolution["matched_by"] == "distributor_pn"
+    assert resolution["part"]["ipn"] == part["ipn"]

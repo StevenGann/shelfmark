@@ -904,7 +904,7 @@ async def stock_scan(request: Request, conn: Conn):
         )
     try:
         data = await labels.read_upload(upload)
-        _payloads, chosen = labels.decode(data)
+        payloads, chosen = labels.decode(data)
     except labels.LabelError as exc:
         return _render(
             request,
@@ -912,7 +912,7 @@ async def stock_scan(request: Request, conn: Conn):
             _stock_context(conn, scan_error=_scan_error_text(exc)),
             status_code=422,
         )
-    parsed = labels.parse_label(chosen)
+    parsed = labels.parse_label(chosen, payloads)
     return _render(
         request,
         "stock.html",
@@ -935,7 +935,7 @@ async def stock_label_receive(request: Request, conn: Conn):
     parsed = {
         "mpn": str(form.get("mpn") or "").strip() or None,
         "description": str(form.get("description") or "").strip() or None,
-        "digikey_pn": str(form.get("digikey_pn") or "").strip() or None,
+        "distributor_pn": str(form.get("distributor_pn") or "").strip() or None,
         "lot": str(form.get("lot") or "").strip() or None,
         "date_code": str(form.get("date_code") or "").strip() or None,
     }

@@ -38,7 +38,8 @@
     <form class="stock-form" method="post" action="/stock/label-receive">
       <dl class="part-fields">
         {% for name, value in [
-          ('DigiKey PN', label.digikey_pn), ('MPN', label.mpn),
+          ('Supplier P/N', label.distributor_pn), ('MPN', label.mpn),
+          ('Manufacturer', label.manufacturer),
           ('Description', label.description), ('Quantity', label.quantity),
           ('Lot', label.lot), ('Date code', label.date_code),
           ('Country', label.country)
@@ -56,12 +57,13 @@
       {% else %}
         <p class="muted">Not in the catalogue yet — confirming will create it.</p>
         <label>Manufacturer
-          <input type="text" name="manufacturer" placeholder="e.g. Texas Instruments" required>
+          <input type="text" name="manufacturer" value="{{ label.manufacturer or '' }}"
+                 placeholder="e.g. Texas Instruments" required>
         </label>
       {% endif %}
       <input type="hidden" name="mpn" value="{{ label.mpn or '' }}">
       <input type="hidden" name="description" value="{{ label.description or '' }}">
-      <input type="hidden" name="digikey_pn" value="{{ label.digikey_pn or '' }}">
+      <input type="hidden" name="distributor_pn" value="{{ label.distributor_pn or '' }}">
       <input type="hidden" name="lot" value="{{ label.lot or '' }}">
       <input type="hidden" name="date_code" value="{{ label.date_code or '' }}">
       <label>Location
