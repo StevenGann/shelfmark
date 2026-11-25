@@ -1,0 +1,17 @@
+services:
+  shelfmark:
+    build: .
+    image: shelfmark:dev
+    ports:
+      - "8080:8080"
+    environment:
+      SHELFMARK_DATA_DIR: /data
+    volumes:
+      - shelfmark-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    restart: unless-stopped
+
+volumes:
+  shelfmark-data:
