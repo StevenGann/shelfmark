@@ -2,7 +2,7 @@
 
 Two mechanisms, two audiences, one role ladder.
 
-- **API keys** (`smk_…`) for machines: scripts, integrations, the CLI, the MCP
+- **API keys** (`smk_…`) for machines: scripts, integrations and the CLI
   server. Sent as `Authorization: Bearer …` or `X-API-Key: …`.
 - **Username and password** for people: the HTML UI, logged in once and carried
   by a server-side session cookie.
@@ -71,6 +71,6 @@ one worker by contract.
 
 ## MCP
 
-A stdio server, `shelfmark mcp`, read-only, calling the same service layer as the
-REST routes. It needs no credential: possession of the process is the
-authorisation, and the tool functions have no write path to call.
+There is none. An earlier draft of this document described a read-only stdio
+server, `shelfmark mcp`; no such command was ever built. `shelfmark --help` is
+the authority on what ships, and it lists eight commands.
