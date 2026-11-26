@@ -165,7 +165,7 @@ every unmatched line that names a manufacturer.
 
 ### 6. Scan a supplier label
 
-Visit `/stock` and use the **Scan label** panel (engineer or admin). Choose the label photo
+Visit `/stock` and open the **Scan a supplier label** panel (engineer or admin). Choose the label photo
 (`file`) and submit **Decode**. Shelfmark reads the Data Matrix and linear codes, shows the
 decoded supplier part number, MPN, manufacturer, description, quantity, lot, date code and
 country, and either matches an existing part or offers to create one. Fill the **Location** (it
