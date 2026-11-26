@@ -33,7 +33,7 @@ jobs:
 
       - name: Install
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install --upgrade pip setuptools
           pip install -e ".[dev]"
 
       - name: Lint
@@ -72,6 +72,9 @@ jobs:
         run: bandit -q -c pyproject.toml -r app -ll
 
       - name: Dependency audit (pip-audit)
+        # The runner's own setuptools is in scope: a vulnerable build tool is
+        # still a vulnerable build tool. The floor in [build-system] keeps the
+        # build environment from resolving an older one.
         run: pip-audit --progress-spinner off
 
   image:
