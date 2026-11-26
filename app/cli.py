@@ -9,7 +9,7 @@ import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import auth, db, enrich, labels, pricing, sessions, users
+from . import archive, auth, db, enrich, labels, pricing, sessions, users
 from .bom import BomError
 from .repo import boms as boms_repo
 from .repo import builds as builds_repo
@@ -38,6 +38,53 @@ def _needs_queue(conn, part_id: int, force: bool) -> bool:
         return False
     latest = catalog.latest_job(conn, part_id)
     return latest is None or latest["status"] != "done"
+
+
+def _run_export(args: argparse.Namespace) -> int:
+    db.migrate()
+    conn = db.connect()
+    try:
+        dest = Path(args.out)
+        manifest = archive.export_bundle(dest, conn, assets=not args.no_assets)
+        print(f"{dest} {len(manifest['counts'])} tables, {dest.stat().st_size} bytes")
+        return 0
+    except (OSError, archive.ArchiveError) as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+
+
+def _run_restore(args: argparse.Namespace) -> int:
+    db.migrate()
+    conn = db.connect()
+    try:
+        result = archive.restore_bundle(
+            Path(args.file), conn, force=args.force, assets=not args.no_assets
+        )
+    except archive.ArchiveError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    for name, count in result["tables"].items():
+        print(f"{name} {count} ok")
+    print(f"restored {len(result['tables'])} tables, {result['assets']} assets")
+    return 0
+
+
+def _run_backup(args: argparse.Namespace) -> int:
+    db.migrate()
+    conn = db.connect()
+    try:
+        path = archive.backup_dir(Path(args.dir), conn, keep=args.keep, assets=not args.no_assets)
+    except archive.ArchiveError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    print(path)
+    return 0
 
 
 def _run_enrich(args: argparse.Namespace) -> int:
@@ -550,7 +597,30 @@ def main(argv: list[str] | None = None) -> int:
     build_export.add_argument("build_id", type=int)
     build_export.add_argument("--out", required=True)
 
+    export_parser = sub.add_parser("export", help="write a portable backup bundle")
+    export_parser.add_argument("--out", required=True)
+    export_parser.add_argument("--no-assets", action="store_true")
+
+    restore_parser = sub.add_parser("restore", help="load a bundle into this database")
+    restore_parser.add_argument("file")
+    restore_parser.add_argument("--force", action="store_true")
+    restore_parser.add_argument("--no-assets", action="store_true")
+
+    backup_parser = sub.add_parser("backup", help="write a bundle and prune older ones")
+    backup_parser.add_argument("--dir", required=True)
+    backup_parser.add_argument("--keep", type=int, default=14)
+    backup_parser.add_argument("--no-assets", action="store_true")
+
     args = parser.parse_args(argv)
+
+    if args.command == "export":
+        return _run_export(args)
+
+    if args.command == "restore":
+        return _run_restore(args)
+
+    if args.command == "backup":
+        return _run_backup(args)
 
     if args.command == "enrich":
         return _run_enrich(args)

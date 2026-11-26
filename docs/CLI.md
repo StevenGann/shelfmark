@@ -24,6 +24,9 @@ shelfmark label   scan|receive
 shelfmark offers  refresh|audit
 shelfmark subs    list|add|remove
 shelfmark build   plan|commit|list|export
+shelfmark export  --out FILE [--no-assets]
+shelfmark restore FILE [--force] [--no-assets]
+shelfmark backup  --dir DIR [--keep N] [--no-assets]
 ```
 
 ## API keys: `shelfmark key`
@@ -267,4 +270,44 @@ Writes three files into `DIR` (created if needed): `picklist.csv`, `board.xml` a
 
 ```
 shelfmark build export 7 --out ./openpnp
+```
+
+## Export and restore: `shelfmark export`, `shelfmark restore`, `shelfmark backup`
+
+These three commands move the whole database — every table except live sessions and the migration
+ledger, plus the assets — as one portable zip. The zip carries a `manifest.json` (counts, a checksum,
+the app name and version) and a `data.json` of rows keyed by column name, with ids preserved so every
+foreign key still points at a row in the same bundle.
+
+### `shelfmark export --out FILE [--no-assets]`
+
+Writes a bundle to `FILE` and prints the path, the number of tables and the byte size. `--no-assets`
+skips the asset files, producing a smaller bundle that carries only the rows.
+
+```
+shelfmark export --out /backups/shelfmark-20261126T031700Z.zip
+shelfmark export --out rows-only.zip --no-assets
+```
+
+### `shelfmark restore FILE [--force] [--no-assets]`
+
+Loads a bundle into the current database. A bundle whose format, app name or checksum is wrong is
+refused before anything is touched. A non-empty database is refused unless `--force` is given;
+`--force` deletes the current rows in the bundle's tables inside the same transaction, so a failed
+restore leaves the previous data in place. Prints one line per table (`part 87 ok`) and a summary
+(`restored 21 tables, 143 assets`). Returns exit 1 on any error.
+
+```
+shelfmark restore /backups/shelfmark-20261126T031700Z.zip
+shelfmark restore /backups/shelfmark-20261126T031700Z.zip --force
+```
+
+### `shelfmark backup --dir DIR [--keep N] [--no-assets]`
+
+The scheduled form of export: writes `DIR/shelfmark-<stamp>.zip`, re-opens it to prove it is a valid
+bundle, then deletes the oldest bundles beyond `--keep` (default 14) and prints the path. Returns 1
+if the bundle it just wrote cannot be re-opened.
+
+```
+shelfmark backup --dir /backups --keep 14
 ```

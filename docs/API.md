@@ -382,6 +382,16 @@ Errors: `422` (invalid role), `409` (`name already exists`).
 
 Returns `204`. Revoking is idempotent; a missing id still returns `204`.
 
+## Export
+
+### `GET /api/export`
+
+Admin. Streams the same zip that `shelfmark export` writes, with
+`Content-Type: application/zip`, `Content-Disposition: attachment; filename="shelfmark-<stamp>.zip"`
+and `Cache-Control: no-store`. The bundle carries credentials (users and API key hashes), so it is
+never available to the `viewer` role. Errors: `401` (missing or revoked key), `403` (role below
+`admin`).
+
 ## Labels
 
 No shared prefix. Both endpoints require `engineer` and accept `multipart/form-data`.

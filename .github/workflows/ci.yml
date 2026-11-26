@@ -137,10 +137,14 @@ jobs:
       - name: Pin the new image tag
         run: |
           set -euo pipefail
-          file=homelab/Hyperion/k8s/apps/shelfmark/deployment.yaml
-          test -f "$file"
-          sed -i -E "s#image: ghcr.io/stevengann/shelfmark:.*#image: ghcr.io/stevengann/shelfmark:sha-${GITHUB_SHA}#" "$file"
-          grep -n "image:" "$file"
+          dir=homelab/Hyperion/k8s/apps/shelfmark
+          test -d "$dir"
+          # The deployment and every CronJob run the same image; pin all of them
+          # so a scheduled job cannot silently keep running last week's code.
+          mapfile -t files < <(grep -rl 'ghcr.io/stevengann/shelfmark:' "$dir")
+          test "${#files[@]}" -gt 0
+          sed -i -E "s#image: ghcr.io/stevengann/shelfmark:.*#image: ghcr.io/stevengann/shelfmark:sha-${GITHUB_SHA}#" "${files[@]}"
+          grep -rn "image: ghcr.io/stevengann/shelfmark:" "$dir"
 
       - name: Commit and push
         run: |

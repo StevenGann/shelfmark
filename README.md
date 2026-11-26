@@ -150,12 +150,14 @@ and a pick-and-place job are three clicks apart instead of three integrations.
 **Distributor BOM tools** price a design. They do not know what is already in your drawers, what
 you paid last time, or that a substitute arrived in a different package.
 
-**One container, one file.** SQLite, no external services, no queue, no Redis, no Postgres. Back up
-by copying `/data`. The container runs read-only with a single writable volume, as a non-root user.
+**One container, one file.** SQLite, no external services, no queue, no Redis, no Postgres. A backup
+is one zip: `shelfmark export --out parts.zip`, and `shelfmark restore parts.zip` on an empty
+instance brings it all back. The container runs read-only with a single writable volume, as a
+non-root user.
 
 ## Status
 
-Working and in daily use on a real project. 241 tests at 84% coverage, ruff, ruff-format, mypy,
+Working and in daily use on a real project. 252 tests at 84% coverage, ruff, ruff-format, mypy,
 bandit and pip-audit clean on Python 3.11 and 3.12. CI gates all of it, builds and publishes the
 image.
 
@@ -169,7 +171,8 @@ image.
 | Label scanning (DigiKey, Mouser) and receipt | done |
 | Substitutions and shortfall coverage | done |
 | Builds, atomic commit, OpenPnP export | done |
-| Export/restore, nightly refresh, multi-arch image | next |
+| Multi-arch image (amd64, arm64), push to GHCR | done |
+| Export, restore, nightly backup with retention | done |
 
 ### What it does not do yet
 
@@ -190,7 +193,23 @@ Then open <http://localhost:8080>. With no accounts yet, you are sent to `/setup
 first administrator.
 
 Data lives in the `shelfmark-data` volume (`/data` inside the container): the SQLite database and
-the asset directory. That volume is the whole backup.
+the asset directory.
+
+### Backup and restore
+
+```bash
+shelfmark export  --out parts.zip        # database as JSON rows plus every asset
+shelfmark restore parts.zip              # into an empty instance; --force to overwrite
+shelfmark backup  --dir /backups --keep 14
+```
+
+The bundle is a zip: `manifest.json` with row counts and a SHA-256 of the data, `data.json` with
+every table, and `assets/` with the files. A restore checks the checksum first, loads everything in
+one transaction, verifies foreign keys and row counts, and only then commits — a bundle that fails
+any check leaves the previous data untouched. Admin accounts and API keys are inside the bundle
+(they have to be, or the restored instance would have no way in), so treat the zip as a credential.
+
+`GET /api/export` streams the same bundle to an admin.
 
 ### Development
 
