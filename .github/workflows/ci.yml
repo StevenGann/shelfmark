@@ -50,6 +50,27 @@ jobs:
             --cov=app --cov-report=term-missing --cov-report=xml \
             --cov-fail-under=83
 
+      - name: Console script works from an installed copy
+        # Every test runs against the source tree, where ``app/`` sits beside the
+        # migrations. The image runs the installed package instead, and that
+        # difference once meant the break-glass CLI could not create a schema on
+        # a fresh volume. Install into a throwaway venv and use it from /tmp.
+        env:
+          SHELFMARK_DATA_DIR: /tmp/installed-data
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/installed
+          /tmp/installed/bin/pip install -q .
+          cd /tmp
+          printf 'correct-horse-9\n' | /tmp/installed/bin/shelfmark user create smoke --role admin
+          /tmp/installed/bin/python -c "
+          import sqlite3
+          rows = sqlite3.connect('/tmp/installed-data/shelfmark.db').execute(
+              \"select count(*) from sqlite_master where type='table'\").fetchone()[0]
+          assert rows > 20, rows
+          print('installed copy created', rows, 'tables')
+          "
+
       - name: Coverage summary
         if: always()
         run: |

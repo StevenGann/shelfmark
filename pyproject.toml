@@ -38,7 +38,7 @@ shelfmark = "app.cli:main"
 include = ["app*"]
 
 [tool.setuptools.package-data]
-app = ["templates/*.html", "templates/**/*.html", "static/*"]
+app = ["templates/*.html", "templates/**/*.html", "static/*", "migrations/*.sql"]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv"]

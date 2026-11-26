@@ -6,7 +6,6 @@ WORKDIR /app
 # two lists drifted the first time a dependency was added.
 COPY pyproject.toml ./
 COPY app ./app
-COPY migrations ./migrations
 # The console script is the break-glass path when nobody can log in, so fail the
 # build if it cannot import. A flat `packages = ["app"]` shipped app/*.py without
 # app/repo for several releases: the server worked off /app while `shelfmark`
@@ -14,6 +13,14 @@ COPY migrations ./migrations
 RUN pip install --no-cache-dir . \
  && python -c "import app.repo, app.web" \
  && shelfmark --help > /dev/null
+
+# The migrations live inside the package, and the console script imports the
+# installed package rather than the source tree. Prove from a scratch directory
+# that an installed copy can still create a schema: this is the assertion that
+# would have caught `shelfmark restore` dying on a fresh volume.
+RUN cd /tmp \
+ && SHELFMARK_DATA_DIR=/tmp/migrations-smoke python -c "from app import db; assert db.migrate(), db.MIGRATIONS" \
+ && rm -rf /tmp/migrations-smoke
 
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin shelfmark \
  && mkdir -p /data && chown shelfmark:shelfmark /data

@@ -101,7 +101,7 @@ There are two separate "first run" events.
 ### Upgrading
 
 Migrations run automatically at startup, before any request is served. To upgrade, build or pull
-the new image and restart the container; `app.db.migrate()` applies any pending `migrations/*.sql`
+the new image and restart the container; `app.db.migrate()` applies any pending `app/app/migrations/*.sql`
 files in filename order, one per release, and records them in a `schema_migration` table. There is
 no separate migration command to run.
 

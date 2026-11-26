@@ -1,7 +1,7 @@
 import sqlite3
 from pathlib import Path
 
-MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+MIGRATIONS = Path(__file__).resolve().parent.parent / "app" / "migrations"
 
 _PRE_0005 = ("0001_init.sql", "0002_parts.sql", "0003_api_keys.sql", "0004_users.sql")
 

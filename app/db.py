@@ -12,7 +12,23 @@ from pathlib import Path
 
 from .config import settings
 
-MIGRATIONS = Path(__file__).resolve().parent.parent / "migrations"
+
+def _migrations_dir() -> Path:
+    """Where the .sql files are.
+
+    They live inside the package (``app/migrations``) so that an installed copy
+    carries its own schema. The console script imports the installed package,
+    not the source tree, and used to find nothing — ``shelfmark restore`` on a
+    fresh volume died with "no such table: part" while the server, running from
+    the source tree, worked fine.
+    """
+    candidate = Path(__file__).resolve().parent / "migrations"
+    if candidate.is_dir() and any(candidate.glob("*.sql")):
+        return candidate
+    return Path(__file__).resolve().parent.parent / "migrations"
+
+
+MIGRATIONS = _migrations_dir()
 
 
 def connect() -> sqlite3.Connection:
