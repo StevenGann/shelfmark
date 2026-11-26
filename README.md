@@ -12,7 +12,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue" alt="MIT licensed"></a>
   <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12-3776ab" alt="Python 3.11 and 3.12">
-  <img src="https://img.shields.io/badge/deploy-one%20container-2496ed" alt="One container">
+  <img src="https://img.shields.io/badge/docker-single--container-2496ed" alt="One container">
 </p>
 
 Shelfmark answers four questions in one place: what parts do we have, where are they, do we have
