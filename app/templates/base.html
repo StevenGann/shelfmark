@@ -9,20 +9,27 @@
 </head>
 <body>
   <header>
-    <a class="brand" href="/"><img src="/static/favicon.svg" alt="">Shelfmark</a>
-    {% if current_user %}
-    <span class="user-info">{{ current_user.username }} · {{ current_user.role }}</span>
-    <a class="nav-link" href="/account">Account</a>
-    <a class="nav-link" href="/projects">Projects</a>
-    <a class="nav-link" href="/builds">Builds</a>
-    <a class="nav-link" href="/stock">Stock</a>
-    {% if current_user.role == 'admin' %}
-    <a class="nav-link" href="/users">Users</a>
-    {% endif %}
-    <form method="post" action="/logout" class="logout">
-      <button type="submit">Log out</button>
-    </form>
-    {% endif %}
+    <div class="header-inner">
+      <a class="brand" href="/"><img src="/static/favicon.svg" alt="">Shelfmark</a>
+      {% if current_user %}
+      {% set path = request.url.path %}
+      <nav aria-label="Main">
+        <a class="nav-link" href="/" {% if path == "/" or path.startswith("/parts") %}aria-current="page"{% endif %}>Parts</a>
+        <a class="nav-link" href="/stock" {% if path.startswith("/stock") %}aria-current="page"{% endif %}>Stock</a>
+        <a class="nav-link" href="/projects" {% if path.startswith("/projects") %}aria-current="page"{% endif %}>Projects</a>
+        <a class="nav-link" href="/builds" {% if path.startswith("/builds") %}aria-current="page"{% endif %}>Builds</a>
+        {% if current_user.role == 'admin' %}
+        <a class="nav-link" href="/users" {% if path.startswith("/users") %}aria-current="page"{% endif %}>Users</a>
+        {% endif %}
+      </nav>
+      <div class="user">
+        <a class="user-info" href="/account" title="Account settings">{{ current_user.username }} · {{ current_user.role }}</a>
+        <form method="post" action="/logout" class="logout">
+          <button type="submit">Log out</button>
+        </form>
+      </div>
+      {% endif %}
+    </div>
   </header>
   <main>
     {% block content %}{% endblock %}

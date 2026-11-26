@@ -2,8 +2,9 @@
 {% block title %}Set up · Shelfmark{% endblock %}
 {% block content %}
 <div class="login-card">
+  <img class="login-mark" src="/static/favicon.svg" alt="">
   <h1>Create the first admin</h1>
-  <p>No accounts exist yet. Claim this instance by creating the first administrator.</p>
+  <p class="muted">No accounts exist yet. Claim this instance by creating the first administrator.</p>
   {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
   <form method="post" action="/setup" class="login-form">
     <label>Username

@@ -1,6 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Parts · Shelfmark{% endblock %}
 {% block content %}
+<div class="page-head">
+  <h1>Parts</h1>
+  <span class="sub">{{ total }} part{% if total != 1 %}s{% endif %}{% if q or category or package %} matching{% endif %}</span>
+  <div class="page-actions">
+    <a class="button primary" href="/parts/new">New part</a>
+  </div>
+</div>
+
 <div class="toolbar">
   <form method="get" action="/" class="search">
     <input type="search" name="q" value="{{ q }}" placeholder="IPN, MPN, manufacturer, description" aria-label="Search parts">
@@ -18,54 +26,59 @@
     </select>
     <button type="submit" class="primary">Search</button>
   </form>
-  <a class="button primary new-part" href="/parts/new">New part</a>
+  {% if q or category or package %}
+  <a class="button ghost" href="/">Clear</a>
+  {% endif %}
 </div>
 
 {% if parts %}
 <table class="parts-table">
   <thead>
     <tr>
-      <th></th><th>IPN</th><th>MPN</th><th>Manufacturer</th><th>Package</th><th>Description</th><th>{% if sort == 'onhand' %}<a href="?q={{ q|urlencode }}&category={{ category|urlencode }}&package={{ package|urlencode }}" title="Sort by IPN">On hand ↑</a>{% else %}<a href="?q={{ q|urlencode }}&category={{ category|urlencode }}&package={{ package|urlencode }}&sort=onhand" title="Sort by on-hand quantity">On hand</a>{% endif %}</th><th>Status</th>
+      <th class="thumb-cell"><span class="label">Image</span></th>
+      <th>IPN</th>
+      <th>MPN</th>
+      <th>Manufacturer</th>
+      <th>Package</th>
+      <th>Description</th>
+      <th class="num">{% if sort == 'onhand' %}<a href="?q={{ q|urlencode }}&amp;category={{ category|urlencode }}&amp;package={{ package|urlencode }}" title="Sort by IPN">On hand &uarr;</a>{% else %}<a href="?q={{ q|urlencode }}&amp;category={{ category|urlencode }}&amp;package={{ package|urlencode }}&amp;sort=onhand" title="Sort by on-hand quantity">On hand</a>{% endif %}</th>
+      <th>Status</th>
     </tr>
   </thead>
   <tbody>
     {% for p in parts %}
     <tr>
-      <td>
+      <td class="thumb-cell">
         {% if p.image_rel_path %}
         <img class="thumb" src="/assets/{{ p.image_rel_path }}" alt="" loading="lazy">
         {% else %}
-        <span class="thumb placeholder"></span>
+        <span class="thumb placeholder" aria-hidden="true"></span>
         {% endif %}
       </td>
       <td><span class="label">IPN</span><a class="ipn" href="/parts/{{ p.ipn }}">{{ p.ipn }}</a></td>
-      <td><span class="label">MPN</span><strong>{{ p.mpn }}</strong></td>
+      <td class="mpn"><span class="label">MPN</span>{{ p.mpn }}</td>
       <td><span class="label">Manufacturer</span>{{ p.manufacturer }}</td>
-      <td><span class="label">Package</span>{% if p.package %}<span class="chip">{{ p.package|package }}</span>{% else %}—{% endif %}</td>
-      <td><span class="label">Description</span>{{ p.description or "—" }}</td>
-      <td><span class="label">On hand</span>{% if p.on_hand %}{{ p.on_hand }}{% endif %}</td>
-      <td><span class="label">Status</span><span class="status status-{{ p.design_status }}">{{ p.design_status }}</span></td>
+      <td><span class="label">Package</span>{% if p.package %}<span class="chip">{{ p.package|package }}</span>{% else %}&mdash;{% endif %}</td>
+      <td class="desc"><span class="label">Description</span><span class="value">{{ p.description or "—" }}</span></td>
+      <td class="onhand num{% if not p.on_hand %} zero{% endif %}"><span class="label">On hand</span>{{ p.on_hand or 0 }}</td>
+      <td class="status-cell"><span class="label">Status</span><span class="status status-{{ p.design_status }}">{{ p.design_status }}</span></td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 
 {% if total_pages > 1 %}
-<nav class="pagination">
-  {% if page > 1 %}<a class="button" href="?q={{ q|urlencode }}&category={{ category|urlencode }}&package={{ package|urlencode }}&page={{ page - 1 }}">Previous</a>{% endif %}
+<nav class="pagination" aria-label="Pagination">
+  {% if page > 1 %}<a class="button small" href="?q={{ q|urlencode }}&amp;category={{ category|urlencode }}&amp;package={{ package|urlencode }}&amp;page={{ page - 1 }}">Previous</a>{% endif %}
   <span>Page {{ page }} of {{ total_pages }}</span>
-  {% if page < total_pages %}<a class="button" href="?q={{ q|urlencode }}&category={{ category|urlencode }}&package={{ package|urlencode }}&page={{ page + 1 }}">Next</a>{% endif %}
+  {% if page < total_pages %}<a class="button small" href="?q={{ q|urlencode }}&amp;category={{ category|urlencode }}&amp;package={{ package|urlencode }}&amp;page={{ page + 1 }}">Next</a>{% endif %}
 </nav>
 {% endif %}
-
-<div class="sticky-actions">
-  <a class="button primary" href="/parts/new">New part</a>
-</div>
 {% else %}
 <div class="empty">
-  {% if q or category %}
-  <p>No parts match your search.</p>
-  <p>Clear the search, or <a href="/parts/new">add a new part</a>.</p>
+  {% if q or category or package %}
+  <p>No parts match that search.</p>
+  <p>Clear the filters, or <a href="/parts/new">add a new part</a>.</p>
   {% else %}
   <p>No parts yet.</p>
   <p><a class="button primary" href="/parts/new">Add your first part</a></p>

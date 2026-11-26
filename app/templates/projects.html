@@ -1,31 +1,31 @@
 {% extends "base.html" %}
 {% block title %}Projects · Shelfmark{% endblock %}
 {% block content %}
-<h1>Projects</h1>
+<div class="page-head">
+  <h1>Projects</h1>
+  <span class="sub">{{ projects|length }} project{% if projects|length != 1 %}s{% endif %}</span>
+</div>
 
 {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
-
-<form method="post" action="/projects" class="part-form">
-  <label>Project name
-    <input name="name" placeholder="sk-sensor" required>
-  </label>
-  <label>Description
-    <input name="description" placeholder="Optional">
-  </label>
-  <button type="submit" class="primary">Create project</button>
-</form>
 
 {% if projects %}
 <table class="parts-table">
   <thead>
-    <tr><th>Name</th><th>Revisions</th><th>Newest</th><th>Unmatched</th></tr>
+    <tr>
+      <th>Name</th>
+      <th>Description</th>
+      <th class="num">Revisions</th>
+      <th>Newest</th>
+      <th>Unmatched</th>
+    </tr>
   </thead>
   <tbody>
     {% for p in projects %}
     <tr>
       <td><a href="/projects/{{ p.id }}">{{ p.name }}</a></td>
-      <td><span class="label">Revisions</span>{{ p.revision_count }}</td>
-      <td><span class="label">Newest</span>{{ p.newest_label or "—" }}</td>
+      <td class="desc"><span class="label">Description</span><span class="value">{{ p.description or "—" }}</span></td>
+      <td class="num"><span class="label">Revisions</span>{{ p.revision_count }}</td>
+      <td><span class="label">Newest</span>{% if p.newest_label %}<span class="chip">{{ p.newest_label }}</span>{% else %}—{% endif %}</td>
       <td>
         <span class="label">Unmatched</span>
         {% if p.unmatched_count %}<span class="status status-unmatched">{{ p.unmatched_count }}</span>{% else %}0{% endif %}
@@ -37,7 +37,22 @@
 {% else %}
 <div class="empty">
   <p>No projects yet.</p>
-  <p>Create one above to start importing BOMs.</p>
+  <p>Create one below to start importing BOMs.</p>
 </div>
 {% endif %}
+
+<details class="card offer-add" style="margin-top:1.5rem;padding:1rem 1.15rem;border-top:1px solid var(--border)">
+  <summary>New project</summary>
+  <form method="post" action="/projects" class="part-form" style="margin-top:0.9rem">
+    <label>Project name
+      <input name="name" placeholder="sk-sensor" required>
+    </label>
+    <label>Description
+      <input name="description" placeholder="Optional">
+    </label>
+    <div class="actions">
+      <button type="submit" class="primary">Create project</button>
+    </div>
+  </form>
+</details>
 {% endblock %}

@@ -55,6 +55,31 @@ def _format_asset_date(value: str | None) -> str:
         return value
 
 
+def _format_ago(value: str | None) -> str:
+    """Render a stored ``YYYY-MM-DDTHH:MM:SSZ`` timestamp as a short age.
+
+    The table cells show "3d ago" and keep the exact stamp in a title attribute;
+    anything unparseable is passed through rather than swallowed.
+    """
+    if not value:
+        return ""
+    try:
+        stamp = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return value
+    seconds = int((datetime.now(UTC) - stamp).total_seconds())
+    if seconds < 60:
+        return "just now"
+    if seconds < 3600:
+        return f"{seconds // 60}m ago"
+    if seconds < 86400:
+        return f"{seconds // 3600}h ago"
+    days = seconds // 86400
+    if days < 30:
+        return f"{days}d ago"
+    return _format_asset_date(value)
+
+
 def _fetched_note(value: str | None) -> str:
     """Render the age of the most recent DigiKey offer fetch."""
     if not value:
@@ -87,6 +112,7 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["package"] = normalise_package
 templates.env.filters["assetdate"] = _format_asset_date
+templates.env.filters["ago"] = _format_ago
 templates.env.filters["money"] = pricing.format_money
 
 PAGE_SIZE = 50

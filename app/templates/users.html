@@ -1,68 +1,90 @@
 {% extends "base.html" %}
 {% block title %}Users · Shelfmark{% endblock %}
 {% block content %}
-<h1>Users</h1>
+<div class="page-head">
+  <h1>Users</h1>
+  <span class="sub">{{ users|length }} account{% if users|length != 1 %}s{% endif %}</span>
+</div>
 
 {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
 
-<h2>Add user</h2>
-<form method="post" action="/users" class="part-form">
-  <label>Username
-    <input name="username" required>
-  </label>
-  <label>Password
-    <input name="password" type="password" required>
-  </label>
-  <label>Role
-    <select name="role">
-      {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
-    </select>
-  </label>
-  <button type="submit" class="primary">Create user</button>
-</form>
+<div class="stack">
+  <section class="card">
+    <div class="card-head">
+      <h2>Existing users</h2>
+    </div>
+    <table class="parts-table">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Change role</th>
+          <th>Password</th>
+          <th>Account</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>{{ u.username }}</td>
+          <td><span class="chip">{{ u.role }}</span></td>
+          <td>
+            {% if u.disabled_at %}<span class="status status-dnp">disabled</span>{% else %}<span class="status status-active">active</span>{% endif %}
+          </td>
+          <td>
+            {% if not u.disabled_at %}
+            <form method="post" action="/users/{{ u.id }}/role" class="inline-form">
+              <select name="role" aria-label="Role for {{ u.username }}">
+                {% for r in roles %}
+                <option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ r }}</option>
+                {% endfor %}
+              </select>
+              <button type="submit" class="small">Change</button>
+            </form>
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <form method="post" action="/users/{{ u.id }}/password" class="inline-form">
+              <input name="password" type="password" placeholder="New password" autocomplete="new-password" required style="width:10rem">
+              <button type="submit" class="small">Set</button>
+            </form>
+          </td>
+          <td>
+            {% if not u.disabled_at %}
+            <form method="post" action="/users/{{ u.id }}/disable" class="inline-form">
+              <button type="submit" class="small">Disable</button>
+            </form>
+            {% else %}
+            <form method="post" action="/users/{{ u.id }}/enable" class="inline-form">
+              <button type="submit" class="small">Enable</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
 
-<h2>Existing users</h2>
-<table class="parts-table">
-  <thead>
-    <tr><th>Username</th><th>Role</th><th>Status</th><th>Role</th><th>Password</th><th>Account</th></tr>
-  </thead>
-  <tbody>
-    {% for u in users %}
-    <tr>
-      <td>{{ u.username }}</td>
-      <td>{{ u.role }}</td>
-      <td>{% if u.disabled_at %}disabled{% else %}active{% endif %}</td>
-      <td>
-        {% if not u.disabled_at %}
-        <form method="post" action="/users/{{ u.id }}/role" class="inline-form">
-          <select name="role">
-            {% for r in roles %}
-            <option value="{{ r }}" {% if r == u.role %}selected{% endif %}>{{ r }}</option>
-            {% endfor %}
-          </select>
-          <button type="submit">Change role</button>
-        </form>
-        {% endif %}
-      </td>
-      <td>
-        <form method="post" action="/users/{{ u.id }}/password" class="inline-form">
-          <input name="password" type="password" placeholder="New password" autocomplete="new-password" required>
-          <button type="submit">Set</button>
-        </form>
-      </td>
-      <td>
-        {% if not u.disabled_at %}
-        <form method="post" action="/users/{{ u.id }}/disable" class="inline-form">
-          <button type="submit">Disable</button>
-        </form>
-        {% else %}
-        <form method="post" action="/users/{{ u.id }}/enable" class="inline-form">
-          <button type="submit">Enable</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <details class="card">
+    <summary>Add user</summary>
+    <form method="post" action="/users" class="part-form" style="margin-top:0.9rem">
+      <label>Username
+        <input name="username" required>
+      </label>
+      <label>Password
+        <input name="password" type="password" required>
+      </label>
+      <label>Role
+        <select name="role">
+          {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+        </select>
+      </label>
+      <div class="actions">
+        <button type="submit" class="primary">Create user</button>
+      </div>
+    </form>
+  </details>
+</div>
 {% endblock %}

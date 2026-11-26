@@ -1,17 +1,23 @@
 {% extends "base.html" %}
 {% block title %}Stock · Shelfmark{% endblock %}
 {% block content %}
-<h1>Stock</h1>
+<div class="page-head">
+  <h1>Stock</h1>
+  <span class="sub">{{ groups|length }} location{% if groups|length != 1 %}s{% endif %}</span>
+</div>
 
 <div class="toolbar">
   <form method="get" action="/stock" class="search">
     <input type="search" name="q" value="{{ q }}" placeholder="IPN, MPN, manufacturer, location" aria-label="Search stock">
-    <input type="search" name="location" value="{{ location }}" list="locations" placeholder="Location">
+    <input type="search" name="location" value="{{ location }}" list="locations" placeholder="Location" aria-label="Filter by location">
     <label class="below">Below
       <input type="number" name="below" value="{{ below }}" min="0" inputmode="numeric" placeholder="N" aria-label="Below quantity">
     </label>
     <button type="submit" class="primary">Filter</button>
   </form>
+  {% if q or location or below %}
+  <a class="button ghost" href="/stock">Clear</a>
+  {% endif %}
 </div>
 
 <datalist id="locations">
@@ -21,9 +27,9 @@
 </datalist>
 
 {% if current_user.role in ('engineer', 'admin') %}
-<section class="scan-panel" id="scan">
-  <h2>Scan label</h2>
-  <p class="muted">Photograph the DigiKey label so it fills the frame.</p>
+<details class="card scan-panel" id="scan" {% if scan %}open{% endif %}>
+  <summary>Scan a supplier label</summary>
+  <p class="muted" style="margin:0.75rem 0">Photograph the DigiKey label so it fills the frame.</p>
   {% if scan_error %}<div class="error" role="alert">{{ scan_error }}</div>{% endif %}
   <form class="scan-form" method="post" action="/stock/scan" enctype="multipart/form-data">
     <label>Label photo
@@ -82,33 +88,38 @@
       </div>
     </form>
   {% endif %}
-</section>
+</details>
 {% endif %}
 
 {% if groups %}
+<table class="parts-table stock-table">
+  <thead>
+    <tr>
+      <th>IPN</th>
+      <th>MPN</th>
+      <th>Manufacturer</th>
+      <th class="num">Qty</th>
+    </tr>
+  </thead>
   {% for group in groups %}
-  <section class="stock-group">
-    <h2>{{ group.location }} <span class="muted">({{ group.total }} on hand)</span></h2>
-    <table class="parts-table stock-table">
-      <thead>
-        <tr><th>IPN</th><th>MPN</th><th>Manufacturer</th><th>Qty</th></tr>
-      </thead>
-      <tbody>
-        {% for row in group.rows %}
-        <tr>
-          <td><span class="label">IPN</span><a class="ipn" href="/parts/{{ row.ipn }}">{{ row.ipn }}</a></td>
-          <td><span class="label">MPN</span>{{ row.mpn }}</td>
-          <td><span class="label">Manufacturer</span>{{ row.manufacturer }}</td>
-          <td><span class="label">Qty</span>{{ row.quantity }}</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </section>
+  <tbody>
+    <tr class="group-row">
+      <th colspan="4">{{ group.location }} <span class="muted">· {{ group.total }} on hand</span></th>
+    </tr>
+    {% for row in group.rows %}
+    <tr>
+      <td><span class="label">IPN</span><a class="ipn" href="/parts/{{ row.ipn }}">{{ row.ipn }}</a></td>
+      <td class="mpn"><span class="label">MPN</span>{{ row.mpn }}</td>
+      <td><span class="label">Manufacturer</span>{{ row.manufacturer }}</td>
+      <td class="num"><span class="label">Qty</span>{{ row.quantity }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
   {% endfor %}
+</table>
 {% else %}
 <div class="empty">
-  <p>No stock matches your filters.</p>
+  <p>No stock matches those filters.</p>
 </div>
 {% endif %}
 {% endblock %}

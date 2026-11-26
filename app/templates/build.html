@@ -1,70 +1,92 @@
 {% extends "base.html" %}
 {% block title %}Build #{{ build.id }} · Shelfmark{% endblock %}
 {% block content %}
-<h1>Build #{{ build.id }} — {{ project.name }} · {{ revision.label }}</h1>
-<p class="muted">
-  {{ build.boards }} board{{ "s" if build.boards != 1 else "" }} ·
-  <span class="status status-{{ build.status }}">{{ build.status }}</span> ·
-  planned by {{ build.created_by }} · {{ build.created_at }}
-  {% if build.committed_at %} · committed {{ build.committed_at }}{% endif %}
-</p>
+<div class="page-head">
+  <h1>Build #{{ build.id }}</h1>
+  <span class="status status-{{ build.status }}">{{ build.status }}</span>
+  <span class="sub">{{ project.name }} · {{ revision.label }} · {{ build.boards }} board{{ "s" if build.boards != 1 else "" }}</span>
+  <div class="page-actions">
+    <a class="button ghost" href="/revisions/{{ revision.id }}">Back to revision</a>
+  </div>
+</div>
+
 {% if build.note %}<p class="muted">{{ build.note }}</p>{% endif %}
+<p class="subtle">
+  Planned by {{ build.created_by }} <span title="{{ build.created_at }}">{{ build.created_at|ago }}</span>
+  {% if build.committed_at %} · committed <span title="{{ build.committed_at }}">{{ build.committed_at|ago }}</span>{% endif %}
+</p>
 
 {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
 
 {% if multi_board %}
-<p class="notice">placements describe one board; OpenPnP's board count sets the rest.</p>
+<p class="notice">Placements describe one board; OpenPnP's board count sets the rest.</p>
 {% endif %}
 
 {% if build.status == 'planning' %}
-<form method="post" action="/builds/{{ build.id }}/commit" class="part-form">
-  <button type="submit" class="primary">Commit build</button>
+<div class="toolbar" style="justify-content:flex-start">
+  <form method="post" action="/builds/{{ build.id }}/commit" class="inline-form">
+    <button type="submit" class="primary">Commit build</button>
+  </form>
   <a class="button" href="/builds/{{ build.id }}">Refresh plan</a>
-</form>
-<form method="post" action="/builds/{{ build.id }}/abandon" class="inline-form">
-  <button type="submit">Abandon</button>
-</form>
+  <form method="post" action="/builds/{{ build.id }}/abandon" class="inline-form">
+    <button type="submit" class="danger">Abandon</button>
+  </form>
+</div>
 {% endif %}
 
-<h2>Lines</h2>
-<table class="parts-table">
-  <thead>
-    <tr><th>Part</th><th>MPN</th><th>Manufacturer</th><th>Package</th><th>Required</th><th>Consumed</th><th>On hand</th><th>Short</th><th>Substitutes</th></tr>
-  </thead>
-  <tbody>
-    {% for line in build.lines %}
-    <tr>
-      <td>
-        <span class="label">Part</span>
-        {% if line.ipn %}<a class="ipn" href="/parts/{{ line.ipn }}">{{ line.ipn }}</a>{% else %}<span class="status status-unmatched">unmatched</span>{% endif %}
-      </td>
-      <td><span class="label">MPN</span><strong>{{ line.mpn }}</strong></td>
-      <td><span class="label">Manufacturer</span>{{ line.manufacturer or "—" }}</td>
-      <td><span class="label">Package</span>{{ line.package or "—" }}</td>
-      <td><span class="label">Required</span>{{ line.required }}</td>
-      <td><span class="label">Consumed</span>{{ line.consumed }}</td>
-      <td><span class="label">On hand</span>{{ line.on_hand }}</td>
-      <td>
-        <span class="label">Short</span>
-        {% if line.short > 0 %}<span class="shortfall">{{ line.short }}</span>{% else %}0{% endif %}
-      </td>
-      <td>
-        <span class="label">Substitutes</span>
-        {% if line.substitutes %}
-          {% for s in line.substitutes %}{{ s.substitute_ipn }} {{ s.fit }}, {{ s.substitute_on_hand }} on hand{% if s.covers %} (covers it){% endif %}{% if not loop.last %}; {% endif %}{% endfor %}
-        {% else %}—{% endif %}
-      </td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+<div class="stack">
+  <section class="card">
+    <div class="card-head">
+      <h2>Lines</h2>
+    </div>
+    <table class="parts-table">
+      <thead>
+        <tr>
+          <th>Part</th><th>MPN</th><th>Manufacturer</th><th>Package</th>
+          <th class="num">Required</th><th class="num">Consumed</th><th class="num">On hand</th><th class="num">Short</th><th>Substitutes</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in build.lines %}
+        <tr>
+          <td>
+            <span class="label">Part</span>
+            {% if line.ipn %}<a class="ipn" href="/parts/{{ line.ipn }}">{{ line.ipn }}</a>{% else %}<span class="status status-unmatched">unmatched</span>{% endif %}
+          </td>
+          <td class="mpn"><span class="label">MPN</span>{{ line.mpn }}</td>
+          <td><span class="label">Manufacturer</span>{{ line.manufacturer or "—" }}</td>
+          <td><span class="label">Package</span>{% if line.package %}<span class="chip">{{ line.package }}</span>{% else %}—{% endif %}</td>
+          <td class="num"><span class="label">Required</span>{{ line.required }}</td>
+          <td class="num"><span class="label">Consumed</span>{{ line.consumed }}</td>
+          <td class="num"><span class="label">On hand</span>{{ line.on_hand }}</td>
+          <td class="num">
+            <span class="label">Short</span>
+            {% if line.short > 0 %}<span class="status status-unmatched">{{ line.short }}</span>{% else %}0{% endif %}
+          </td>
+          <td>
+            <span class="label">Substitutes</span>
+            {% if line.substitutes %}
+              {% for s in line.substitutes %}{{ s.substitute_ipn }} {{ s.fit }}, {{ s.substitute_on_hand }} on hand{% if s.covers %} (covers it){% endif %}{% if not loop.last %}; {% endif %}{% endfor %}
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
 
-<h2>Downloads</h2>
-<ul>
-  <li><a href="/builds/{{ build.id }}/picklist.csv">Pick list (.csv)</a></li>
-  <li><a href="/builds/{{ build.id }}/board.xml">OpenPnP board (.xml)</a>{% if not has_positions %} — <span class="muted">positions required</span>{% endif %}</li>
-  <li><a href="/builds/{{ build.id }}/job.xml">OpenPnP job (.xml)</a></li>
-</ul>
-
-<p><a href="/revisions/{{ revision.id }}">Back to revision</a></p>
+  <section class="card">
+    <div class="card-head">
+      <h2>Downloads</h2>
+    </div>
+    <div class="page-actions">
+      <a class="button" href="/builds/{{ build.id }}/picklist.csv">Pick list (.csv)</a>
+      <a class="button" href="/builds/{{ build.id }}/board.xml"{% if not has_positions %} aria-disabled="true"{% endif %}>OpenPnP board (.xml)</a>
+      <a class="button" href="/builds/{{ build.id }}/job.xml">OpenPnP job (.xml)</a>
+    </div>
+    {% if not has_positions %}
+    <p class="subtle" style="margin:0.75rem 0 0">The board file needs a KiCad position file for this revision.</p>
+    {% endif %}
+  </section>
+</div>
 {% endblock %}
