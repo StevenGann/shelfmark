@@ -91,25 +91,25 @@ The loop the whole tool is built around. Everything after the BOM is derived fro
 already on the shelf.
 
 ```mermaid
-flowchart LR
-  bom["KiCad BOM<br/>CSV export"] --> match["Import<br/>and match"]
+flowchart TD
+  bom["KiCad BOM<br/>CSV export"] --> match["Import and match"]
   match --> q1{"Any line<br/>unmatched?"}
   q1 -->|yes| fix["Resolve the line,<br/>or create the part"]
-  fix --> match
-  q1 -->|no| rev["Revision,<br/>with a diff"]
+  fix -->|re-import| match
+  q1 -->|no| rev["Revision, with a diff"]
   rev --> plan["Plan N boards"]
   plan --> q2{"Stock covers<br/>every line?"}
   q2 -->|no| short["409 naming the line,<br/>need, have and shortfall"]
-  short --> supply["Receive stock,<br/>or link a substitute"]
-  supply --> plan
+  short -->|receive, or link a substitute| plan
   q2 -->|yes| commit["Commit: draws stock<br/>in one transaction"]
   commit --> ledger["A ledger row<br/>for every draw"]
   commit --> pnp["Pick list, board.xml,<br/>job.xml"]
 ```
 
 Nothing in the middle of that picture is a guess. An unmatched line stops the import until someone
-resolves it. A short line stops the commit and names the numbers. The ledger rows and the OpenPnP
-files come out of the same commit, so the files describe the stock that was actually drawn.
+resolves it. A short line stops the commit and names the numbers. The draws are written in one
+transaction, and the OpenPnP files are generated from the committed build, so they describe the
+stock that was actually taken.
 
 ## The shape of the data
 
