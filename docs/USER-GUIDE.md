@@ -430,7 +430,8 @@ upgraded in place.
 
 You committed a build whose lines cannot all be covered. The message names the line, the required
 quantity, the on-hand quantity and the shortfall, for example
-`SK-00021 0402 10k: need 120, have 87 - 33 short`. Nothing was written. Receive or count the
+`SK-00021 0402 10k: need 120, have 87 — 33 short` (IPN, package, value, then the numbers). Nothing
+was written. Receive or count the
 missing stock, or link a substitute that covers it and replan, then commit again.
 
 ### 409 positions_required (board.xml refused)
