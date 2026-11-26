@@ -63,6 +63,8 @@ header .brand img {
   width: 1.4rem;
   height: 1.4rem;
   display: block;
+  /* the box centres to the line box, not to the ink: the caps sit low, so nudge the mark down */
+  transform: translateY(1.5px);
 }
 
 header {
