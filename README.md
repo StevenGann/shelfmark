@@ -1,11 +1,22 @@
-# Shelfmark
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/shelfmark-lockup-dark.svg">
+    <img src="docs/brand/shelfmark-lockup.svg" width="380" alt="Shelfmark">
+  </picture>
+</p>
 
-**Parts inventory, BOMs and build tracking for people who assemble boards from KiCad.**
+<p align="center">
+  <strong>Parts inventory, BOMs and build tracking for people who assemble boards from KiCad.</strong>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue" alt="MIT licensed"></a>
+  <img src="https://img.shields.io/badge/python-3.11%20%7C%203.12-3776ab" alt="Python 3.11 and 3.12">
+  <img src="https://img.shields.io/badge/deploy-one%20container-2496ed" alt="One container">
+</p>
 
 Shelfmark answers four questions in one place: what parts do we have, where are they, do we have
 enough for this board, and what goes in the machine.
-
-![MIT licensed](https://img.shields.io/badge/licence-MIT-blue)
 
 ---
 
@@ -73,6 +84,57 @@ copying of coordinates by hand.
 **Access that suits a bench.** Three roles — viewer, engineer, admin. Humans log in with a
 password and a session; machines use API keys. On first run, if no account exists, the app sends
 you to a setup page to create the first admin.
+
+## How a board gets built
+
+The loop the whole tool is built around. Everything after the BOM is derived from stock that is
+already on the shelf.
+
+```mermaid
+flowchart LR
+  bom["KiCad BOM<br/>CSV export"] --> match["Import<br/>and match"]
+  match --> q1{"Any line<br/>unmatched?"}
+  q1 -->|yes| fix["Resolve the line,<br/>or create the part"]
+  fix --> match
+  q1 -->|no| rev["Revision,<br/>with a diff"]
+  rev --> plan["Plan N boards"]
+  plan --> q2{"Stock covers<br/>every line?"}
+  q2 -->|no| short["409 naming the line,<br/>need, have and shortfall"]
+  short --> supply["Receive stock,<br/>or link a substitute"]
+  supply --> plan
+  q2 -->|yes| commit["Commit: draws stock<br/>in one transaction"]
+  commit --> ledger["A ledger row<br/>for every draw"]
+  commit --> pnp["Pick list, board.xml,<br/>job.xml"]
+```
+
+Nothing in the middle of that picture is a guess. An unmatched line stops the import until someone
+resolves it. A short line stops the commit and names the numbers. The ledger rows and the OpenPnP
+files come out of the same commit, so the files describe the stock that was actually drawn.
+
+## The shape of the data
+
+The schema is small enough to hold in your head. The one relationship that matters is the ledger: a
+stock item's quantity is the sum of its moves, and nothing else writes it.
+
+```mermaid
+erDiagram
+  manufacturer ||--o{ part : makes
+  distributor ||--o{ offer : quotes
+  part ||--o{ offer : "priced by"
+  offer ||--|{ price_break : "breaks into"
+  part ||--o{ part_link : "supplier SKUs"
+  part ||--o{ stock_item : "stored as"
+  stock_item ||--o{ stock_move : "sums to quantity"
+  part ||--o{ part_substitute : "may be replaced by"
+  project ||--o{ bom_revision : has
+  bom_revision ||--o{ bom_line : contains
+  bom_line }o--o| part : "matched to"
+  bom_revision ||--o{ build : "planned as"
+  build ||--o{ build_line : draws
+```
+
+That shape is why a mistake is correctable six months later: the moves are still there, in order,
+with the actor and the note.
 
 ## Why this rather than something else
 

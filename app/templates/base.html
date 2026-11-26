@@ -4,11 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Shelfmark{% endblock %}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
   <header>
-    <a class="brand" href="/">Shelfmark</a>
+    <a class="brand" href="/"><img src="/static/favicon.svg" alt="">Shelfmark</a>
     {% if current_user %}
     <span class="user-info">{{ current_user.username }} · {{ current_user.role }}</span>
     <a class="nav-link" href="/account">Account</a>
