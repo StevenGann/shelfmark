@@ -291,6 +291,10 @@ def _row_to_line(row: sqlite3.Row) -> dict:
         "value": row["value"],
         "footprint": row["footprint"],
         "package": row["package"],
+        # The line's own footprint wins; when the CSV was exported without a
+        # Footprint column, fall back to what the matched part already knows so
+        # the column is not a wall of dashes.
+        "part_package": row["part_package"],
         "quantity": int(row["quantity"]),
         "references": json.loads(row["references_json"] or "[]"),
         "dnp": bool(row["dnp"]),
@@ -302,7 +306,7 @@ def _row_to_line(row: sqlite3.Row) -> dict:
 
 def get_lines(conn: sqlite3.Connection, revision_id: int) -> list[dict]:
     rows = conn.execute(
-        "SELECT l.*, p.ipn AS ipn FROM bom_line l "
+        "SELECT l.*, p.ipn AS ipn, p.package AS part_package FROM bom_line l "
         "LEFT JOIN part p ON p.id = l.part_id WHERE l.revision_id = ? ORDER BY l.id",
         (revision_id,),
     ).fetchall()
@@ -311,7 +315,7 @@ def get_lines(conn: sqlite3.Connection, revision_id: int) -> list[dict]:
 
 def get_line(conn: sqlite3.Connection, line_id: int) -> dict | None:
     row = conn.execute(
-        "SELECT l.*, p.ipn AS ipn FROM bom_line l "
+        "SELECT l.*, p.ipn AS ipn, p.package AS part_package FROM bom_line l "
         "LEFT JOIN part p ON p.id = l.part_id WHERE l.id = ?",
         (line_id,),
     ).fetchone()
