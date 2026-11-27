@@ -1,32 +1,59 @@
 # Demo runbook
 
 A ten-minute walkthrough that runs entirely on the demo laptop. No network calls, no home
-connection, nothing to log into. Everything below uses the bundle and the container image.
+connection, nothing to log into. Everything below uses the Windows package and the demo bundle
+inside it.
 
 ## What to carry
 
-- `demo-2026-11-30.zip` (96 MB) — the database and every asset, from the real sk-sensor project
-- `shelfmark-0.1.0-py3-none-any.whl` (fallback, if Docker is not available)
-- Optional: three photos of supplier labels (see "Scan a label" below)
+`shelfmark-windows-demo.zip` (95 MB) — the app, the database and every asset. Unzip it anywhere; it
+contains:
 
-Both files live on Akasha at `/mnt/Media-Storage/Application-Storage/shelfmark-demo/`, reachable from
-the workstation over SMB, or copy them with `scp`.
+- `start-shelfmark.bat` — one double-click, no install, no admin
+- `demo.zip` — the database and assets from the real sk-sensor project
+- `shelfmark-0.1.0-py3-none-any.whl` — the application itself
+- `README.txt` — the same instructions, in the folder
 
-## Start it
+It lives on Akasha at `/mnt/Media-Storage/Application-Storage/shelfmark-demo/`, reachable from the
+workstation over SMB, or copy it with `scp`.
+
+## First run, at home, with the internet
+
+1. Unzip anywhere — Desktop is fine.
+2. Double-click `start-shelfmark.bat`. If Windows has marked it blocked, right-click it, Properties,
+   tick "Unblock", OK — a .bat that arrived from another machine carries that flag.
+3. If Windows says Python is missing, run this once and double-click again:
+   `winget install -e --id Python.Python.3.12`
+   A `python` that opens the Microsoft Store is a stub, not an interpreter; the script checks for
+   that and says so.
+4. The first start builds a private environment and loads the demo data. About a minute.
+5. The browser opens at <http://localhost:8080> and asks you to create the first admin. Do it — this
+   is the demo's first beat, not a setup problem.
+
+On Monday, the same double-click starts in a few seconds. Keep the console window open; closing it
+stops the app. No network is used or needed while demoing.
+
+## If something goes wrong on the day
+
+- **Browser did not open** — go to <http://localhost:8080> yourself.
+- **Port 8080 already in use** — close whatever holds it, or change `--port 8080` to `--port 8081` on
+  the last line of the `.bat` and open <http://localhost:8081>.
+- **Setup failed halfway** — delete the `.venv` folder and double-click again; the demo data is
+  untouched.
+- **Start over from clean data** — close the window and delete the `data` folder. The next start
+  reloads `demo.zip`, which is never modified.
+
+## Other machines
+
+The same bundle runs in a container if Docker is available:
 
 ```bash
-docker run -d --name shelfmark-demo -p 8080:8080 \
-  -v shelfmark-demo:/data \
-  -v "$PWD":/bundle:ro \
-  ghcr.io/stevengann/shelfmark:sha-6d72640
-
+docker run -d --name shelfmark-demo -p 8080:8080 -v shelfmark-demo:/data -v "$PWD":/bundle:ro \
+  ghcr.io/stevengann/shelfmark:sha-0cfcd79
 docker exec shelfmark-demo shelfmark restore /bundle/demo-2026-11-30.zip
 ```
 
-Open <http://localhost:8080>. The instance has no accounts, so it opens on **Create the first
-admin** — that is the demo's first beat, not a problem.
-
-No Docker? The same database loads from a plain Python install:
+Or from a plain Python install on Linux or macOS:
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install shelfmark-0.1.0-py3-none-any.whl
@@ -74,11 +101,8 @@ no bag to hand; the decoder works on a clean photo of the label, not on the bag'
 
 ## Reset between rehearsals
 
-```bash
-docker rm -f shelfmark-demo && docker volume rm shelfmark-demo
-```
-
-Then repeat "Start it". The bundle is never modified.
+Close the console window and delete the `data` folder. The next start reloads `demo.zip`, which is
+never modified.
 
 ## Do not show
 
