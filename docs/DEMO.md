@@ -57,6 +57,11 @@ nothing.
 moved), and a scanned label receipt if you have a photo. Show that consuming for a build is one
 transaction: a shortage aborts the whole commit rather than half-drawing it.
 
+Then close the loop: in Stock, receive 31 of SK-00001 into Bin 12, go back to `rev B`, and watch that
+line's shortage disappear. Nothing about the demo data is staged — those are the two bins that exist —
+so this is the honest version of "the shortfall is a to-do list, and it updates as stock lands."
+
+
 **6. It is yours** (1 min). Account → the app is one container and one file. `shelfmark export`
 produced the very zip the demo started from; `restore` on a new machine brings it back. There is an
 admin-only HTTP equivalent, and a nightly job keeps a fortnight on the NAS.
