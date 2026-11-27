@@ -55,7 +55,7 @@
           </td>
           <td class="mpn"><span class="label">MPN</span>{{ line.mpn }}</td>
           <td><span class="label">Manufacturer</span>{{ line.manufacturer or "—" }}</td>
-          <td><span class="label">Package</span>{% set pkg = line.package or line.part_package %}{% if pkg %}<span class="chip">{{ pkg }}</span>{% else %}—{% endif %}</td>
+          <td><span class="label">Package</span>{% set pkg = line.display_package %}{% if pkg %}<span class="chip">{{ pkg }}</span>{% else %}—{% endif %}</td>
           <td class="num"><span class="label">Required</span>{{ line.required }}</td>
           <td class="num"><span class="label">Consumed</span>{{ line.consumed }}</td>
           <td class="num"><span class="label">On hand</span>{{ line.on_hand }}</td>

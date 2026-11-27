@@ -17,6 +17,7 @@ from datetime import UTC, datetime
 from .. import assets
 from ..bom import ParsedLine, natural_key, parse_bom
 from ..mpn import fold_name, normalise_value
+from ..packages import normalise_package
 from . import parts as parts_repo
 from .catalog import normalise_name
 from .parts import DuplicatePartError
@@ -295,6 +296,9 @@ def _row_to_line(row: sqlite3.Row) -> dict:
         # Footprint column, fall back to what the matched part already knows so
         # the column is not a wall of dashes.
         "part_package": row["part_package"],
+        # Chip-sized strings: the distributor writes "0402 (1005 Metric)" and the
+        # table only needs the key.
+        "display_package": normalise_package(row["package"] or row["part_package"] or "") or None,
         "quantity": int(row["quantity"]),
         "references": json.loads(row["references_json"] or "[]"),
         "dnp": bool(row["dnp"]),
